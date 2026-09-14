@@ -1,0 +1,15 @@
+# Environment
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+.claude/
+
+# Personal data and settings: never committed
+config_local.py
+google_credentials.json
+/portfolios/
+/cashflows.csv
+*.ipynb
+lookthrough/
+gastos/gastos.db
+gastos/receipts/
