@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>My Money</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23191C1F'/><text x='16' y='22' font-family='Arial' font-weight='700' font-size='16' fill='white' text-anchor='middle'>€</text></svg>">
+  <script src="/plotly.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/overview">My&nbsp;Money</a>
+    <nav class="tabs" id="tabs">
+      {% for key, title in pages.items() %}
+      <a href="#/{{ key }}" data-page="{{ key }}">{{ title }}</a>
+      {% endfor %}
+    </nav>
+    <button class="pill pill-dark" id="new-snapshot"><span class="plus">+</span> Snapshot</button>
+  </header>
+
+  <main id="app">
+    <section class="hero" id="hero"></section>
+    <div class="controls" id="controls"></div>
+    <div class="grid" id="sections"></div>
+  </main>
+
+  <!-- Snapshot editor: a bottom sheet filled by app.js from /api/snapshot -->
+  <div class="sheet-backdrop" id="sheet-backdrop" hidden>
+    <aside class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+      <div class="sheet-head">
+        <div>
+          <div class="eyebrow">New snapshot</div>
+          <h2 id="sheet-title"><span id="sheet-total">€0</span></h2>
+        </div>
+        <button class="icon-btn" id="sheet-close" aria-label="Close">✕</button>
+      </div>
+      <div class="sheet-bar">
+        <label class="field"><span>Date</span><input type="date" id="sheet-date"></label>
+        <label class="field"><span>Start from</span><select id="sheet-from"></select></label>
+      </div>
+      <div id="sheet-body"></div>
+      <div class="sheet-foot">
+        <span class="muted" id="sheet-msg"></span>
+        <button class="pill pill-dark" id="sheet-save">Save snapshot</button>
+      </div>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
