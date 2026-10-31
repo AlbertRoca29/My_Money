@@ -1,7 +1,8 @@
 # My Money
 
 A personal-finance side project, still a work in progress. A portfolio tracker website: net worth from
-periodic JSON snapshots and money-weighted returns.
+periodic JSON snapshots, money-weighted returns, look-through exposure vs a benchmark ETF, and a backtest
+of today's fund mix.
 
 No personal data lives in this repo. Snapshots (`portfolios/`), savings (`cashflows.csv`) and
 `config_local.py` (holdings, benchmark, Google Sheet link) are all git-ignored and stay on your machine.
@@ -24,6 +25,8 @@ Then open http://127.0.0.1:8050. The server restarts by itself whenever you save
 | `config_local.py` | Your own values (git-ignored): `FUND_SOURCES`, `DIRECT_STOCKS`, `PRICE_SOURCES`, benchmark… | add an ETF/stock |
 | `web/pages/overview.py` | Overview page: balance, breakdown, value and growth over time | change or add charts on that page |
 | `web/pages/returns.py` | MWR / TWR, money put in vs gain, the "same savings in the benchmark" comparison | — |
+| `web/pages/exposure.py` | Look-through vs the benchmark: countries, sectors, companies, overlap… | — |
+| `web/pages/backtest_page.py` | Today's fund weights vs the benchmark over time | — |
 | `web/data.py` | Loads snapshots and cash flows, runs `mwr.py`, `lookthrough.py` and `backtest.py` (cached) | add a new data source |
 | `web/blocks.py` | The building blocks a page is made of: `kpis`, `chart`, `table`, `items`, `notes`… | add a new block type |
 | `web/theme.py` | Colours, number formats (`eur`, `pct`) and the Plotly chart style | restyle every chart at once |
