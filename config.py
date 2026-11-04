@@ -74,6 +74,7 @@ N_COUNTRIES, N_COMPANIES = 25, 50     # detail in the country / company charts (
 
 # Backtest page: where each position's price history comes from. ETFs by ISIN (justETF):
 #   "My world ETF": {"justetf": "<ISIN>"}; US stocks as {"nasdaq": "TICKER", "currency": "USD"}.
+#   etfs.py lists ISINs and buckets of popular European ETFs: etfs.price_source("IWDA"), etfs.spec("IWDA").
 PRICE_SOURCES = {}
 BACKTEST_BENCHMARK = None        # key of PRICE_SOURCES that doubles as the benchmark
 REBALANCE = "ME"                 # "ME" monthly, "QE" quarterly, "YE" yearly, None = never (buy & hold)

@@ -142,7 +142,7 @@ const views = {
     const avgLabel = upTo === "31" ? "6-month average" : `usual by day ${Number(upTo)}`;
     const byCat = sumBy(month.filter((e) => e.kind === "expense" && counts(e)), (e) => e.category);
     return `
-      <section class="hero">
+      <div class="wide split"><section class="hero">
         <div class="eyebrow">Spent in ${esc(monthName(state.month, { month: "long" }))}</div>
         <div class="big">${eur(t.spent)}</div>
         ${vs === null ? "" : `<div class="delta ${vs > 0 ? "neg" : "pos"}">${vs > 0 ? "▲" : "▼"} ${pct(Math.abs(vs))} vs ${avgLabel} (${eur0(avg)})</div>`}
@@ -151,7 +151,7 @@ const views = {
         <div class="tile"><span>Income</span><b class="pos">${eur0(t.income)}</b></div>
         <div class="tile"><span>Saved</span><b class="${t.saved < 0 ? "neg" : ""}">${eur0(t.saved)}</b></div>
         <div class="tile"><span>Savings rate</span><b>${t.rate === null ? "—" : pct(t.rate)}</b></div>
-      </section>
+      </section></div>
       <section class="card"><h2>By category</h2>${catBars(byCat, t.spent)}</section>
       <section class="card">
         <h2>Latest <a href="#list" class="link">See all</a></h2>
@@ -179,12 +179,14 @@ const views = {
           ${[...categories("expense"), ...categories("income")].map((c) => `<option ${c === cat ? "selected" : ""}>${esc(c)}</option>`).join("")}
         </select>
       </div>
+      <div class="days">
       <p class="summary">${items.length} movements${needle ? " (all months)" : ""} · spent <b>${eur(t.spent)}</b> · income <b class="pos">${eur(t.income)}</b></p>
       ${items.length ? [...days].map(([day, es]) => {
         const net = totals(es);
         return `<section class="day"><h3>${esc(dayName(day))}<span>${net.spent ? "−" + eur(net.spent) : ""}</span></h3>
           <div class="rows">${es.map(row).join("")}</div></section>`;
-      }).join("") : `<p class="empty">Nothing matches.</p>`}`;
+      }).join("") : `<p class="empty">Nothing matches.</p>`}
+      </div>`;
   },
 
   // Stats always cover the last 12 months up to today; the chart scrolls back through all history.
@@ -210,13 +212,13 @@ const views = {
     const income = sumBy(range.filter((e) => e.kind === "income"), (e) => e.category);
     const incomeTotal = income.reduce((a, [, v]) => a + v, 0);
     return `
-      <p class="summary">Last 12 months, up to ${esc(monthName(now))}</p>
-      <section class="tiles">
+      <p class="summary wide">Last 12 months, up to ${esc(monthName(now))}</p>
+      <section class="tiles wide">
         <div class="tile"><span>Avg spent / month</span><b>${eur0(sum("spent") / n)}</b></div>
         <div class="tile"><span>Avg income / month</span><b class="pos">${eur0(sum("income") / n)}</b></div>
         <div class="tile"><span>Savings rate</span><b>${sum("income") ? pct((sum("income") - sum("spent")) / sum("income")) : "—"}</b></div>
       </section>
-      <section class="card"><h2>Income vs spent</h2>${monthChart(history)}</section>
+      <section class="card wide"><h2>Income vs spent</h2>${monthChart(history)}</section>
       <section class="card"><h2>Average per month by category</h2>${catBars(byCat, byCat.reduce((a, [, v]) => a + v, 0))}</section>
       <section class="card"><h2>Where the money goes</h2>
         ${places.length ? `<ol class="places">${places.map((p) => `<li><span>${esc(emoji(p.cat))} ${esc(p.name)} <span class="muted">×${p.n}</span></span><b>${eur0(p.total)}</b></li>`).join("")}</ol>` : `<p class="empty">Nothing yet.</p>`}
@@ -233,11 +235,11 @@ const views = {
           <button class="pill dark" id="import">Import from Google Sheet</button>
           <a class="pill" href="${store.exportUrl}" download>Export CSV</a>
         </div>
-        <p class="muted small">The import reads the GASTOS and INGRESOS tabs of the AppSheet sheet. Rows already here are
+        <p class="muted small">The import reads the GASTOS and INGRESOS tabs of the Google Sheet. Rows already here are
           updated by ID; movements you added in this app are never touched, so it is safe to run again.</p>
       </section>
       <section class="card"><h2>On your phone</h2>
-        <p class="small">Start the server with <code>GASTOS_HOST=0.0.0.0</code>, open this page from your phone on the same
+        <p class="small">Start the server with <code>MY_MONEY_HOST=0.0.0.0</code>, open this page from your phone on the same
           Wi-Fi, then use <b>Add to Home Screen</b>. It opens like an app and shows the last data it saw when offline.</p>
       </section>`;
   },
@@ -278,7 +280,7 @@ function openSheet(entry = null) {
           : `<label class="switch"><input type="checkbox" name="paid_by_other" ${e.paid_by_other ? "checked" : ""}><span>Paid by others<small>job, family… not counted</small></span></label>`}
       </div>
       <input name="note" placeholder="Note (optional)" value="${esc(e.note ?? "")}">
-      ${kind === "expense" ? `<label class="receipt">📎 ${receiptFile ? esc(receiptFile.name) : url ? `<a href="${url}" target="_blank">View receipt</a> · replace` : receipt ? "Receipt kept in AppSheet's Drive · replace" : "Add receipt photo"}
+      ${kind === "expense" ? `<label class="receipt">📎 ${receiptFile ? esc(receiptFile.name) : url ? `<a href="${url}" target="_blank">View receipt</a> · replace` : receipt ? "Receipt kept in Google Drive · replace" : "Add receipt photo"}
         <input type="file" name="receipt" accept="image/*,application/pdf" hidden></label>` : ""}
       <p class="form-error" hidden></p>
       <div class="sheet-actions">
@@ -358,9 +360,9 @@ function render() {
   const r = views[route()] ? route() : "home";
   $("#view").innerHTML = views[r]();
   $("#view").dataset.view = r;
-  document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("active", a.dataset.tab === r));
+  document.querySelectorAll("[data-tab]").forEach((a) => a.classList.toggle("active", a.dataset.tab === r));
   $("#month").hidden = r === "settings" || r === "stats";
-  $("#month-label").textContent = monthName(state.month);
+  $("#month-label").textContent = monthName(state.month, { month: "short", year: "numeric" });
   const strip = $(".chart-scroll");
   if (strip) strip.scrollLeft = strip.scrollWidth;   // start at the latest month
 }
@@ -407,6 +409,7 @@ $("#month").addEventListener("click", (ev) => {
   if (step) { state.month = shiftMonth(state.month, step); render(); }
 });
 $("#add").addEventListener("click", () => openSheet());
+$("#add-top").addEventListener("click", () => openSheet());
 window.addEventListener("hashchange", () => { render(); scrollTo(0, 0); });
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});

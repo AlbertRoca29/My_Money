@@ -100,7 +100,7 @@ def sync():
     token = _token()
     sid = sheet_id(config.GASTOS_SHEET_URL)
     names = config.GASTOS_TABS
-    # a tab can be given by name ("TOTAL") or directly by its gid number (948992749)
+    # a tab can be given by name ("TOTAL") or directly by its gid number (the number after "gid=" in its link)
     gids = tab_gids(sid, token) if any(isinstance(v, str) for v in names.values()) else {}
     missing = [v for v in names.values() if isinstance(v, str) and v not in gids]
     if missing:

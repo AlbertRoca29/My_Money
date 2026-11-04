@@ -1,17 +1,19 @@
 # Gastos
 
-Expenses and income, as a phone-first web app. Replaces the AppSheet app on the Gastos Google Sheet.
+Expenses and income, as a phone-first web app. Replaces logging them straight into the Gastos Google Sheet.
+It is the default page of My Money: the same server shows Gastos at `/` and the portfolio at `/portfolio`,
+with a switcher at the top of both.
 
 ## Run it
 
 ```bash
-.venv/bin/python gastos/server.py        # from My_Money/, then open http://127.0.0.1:8060
+.venv/bin/python app.py        # from My_Money/, then open http://127.0.0.1:8050
 ```
 
-On your phone (same Wi-Fi): start it with `GASTOS_HOST=0.0.0.0`, open `http://<this computer's IP>:8060`,
+On your phone (same Wi-Fi): start it with `MY_MONEY_HOST=0.0.0.0`, open `http://<this computer's IP>:8050`,
 then **Add to Home Screen**.
 
-First time: put the sheet's link in `GASTOS_SHEET_URL` (environment, or `gastos/config_local.py`), then **Settings › Import from Google Sheet** (or `python gastos/db.py`). It reads the GASTOS and
+First time: put the sheet's link in `GASTOS_SHEET_URL` (environment, `config_local.py` or `gastos/config_local.py`), then **Settings › Import from Google Sheet** (or `.venv/bin/python -m gastos.db`). It reads the GASTOS and
 INGRESOS tabs; running it again updates rows by ID and never touches entries made in the app.
 
 ## Where things are
@@ -19,7 +21,7 @@ INGRESOS tabs; running it again updates rows by ID and never touches entries mad
 | File | What it does |
 |---|---|
 | `db.py` | The SQLite table (`gastos.db`, git-ignored) and the Google Sheet import |
-| `server.py` | Serves `web/` and the `/api` routes |
+| `routes.py` | Serves `web/` and the `/api` routes (a blueprint that `../app.py` registers at `/`) |
 | `web/store.js` | **The only file that talks to the server.** Swap it to move to GitHub Pages + a hosted DB |
 | `web/app.js` | The screens: Home, Movements, Stats, Settings and the add/edit sheet |
 | `web/style.css` | Same look as My Money, with dark mode |

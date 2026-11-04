@@ -1,10 +1,11 @@
 # My Money
 
-A personal-finance side project, still a work in progress. Two apps for now, to be merged into one later:
+A personal-finance side project, still a work in progress. One website with two halves, and a switcher at the top
+to go from one to the other:
 
-- **Portfolio tracker** (this folder): net worth from periodic JSON snapshots, money-weighted returns,
+- **[Gastos](gastos/)** at `/` (the default, orange): a phone-first app to log expenses and income.
+- **Portfolio tracker** at `/portfolio` (blue): net worth from periodic JSON snapshots, money-weighted returns,
   look-through exposure vs a benchmark ETF, and a backtest of today's fund mix.
-- **[Gastos](gastos/)**: a phone-first app to log expenses and income.
 
 No personal data lives in this repo. Snapshots (`portfolios/`), savings (`cashflows.csv`) and
 `config_local.py` (holdings, benchmark, Google Sheet link) are all git-ignored and stay on your machine.
@@ -17,7 +18,8 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt   # first time
 .venv/bin/python app.py
 ```
 
-Then open http://127.0.0.1:8050. The server restarts by itself whenever you save a `.py` file.
+Then open http://127.0.0.1:8050 (Gastos; the portfolio is at http://127.0.0.1:8050/portfolio). The server restarts
+by itself whenever you save a `.py` file. Add `MY_MONEY_HOST=0.0.0.0` in front to open it from your phone on the same Wi-Fi.
 
 ## Where things are
 
@@ -25,6 +27,7 @@ Then open http://127.0.0.1:8050. The server restarts by itself whenever you save
 |---|---|---|
 | `config.py` | Every setting, with empty defaults for the private ones | change colours or defaults |
 | `config_local.py` | Your own values (git-ignored): `FUND_SOURCES`, `DIRECT_STOCKS`, `PRICE_SOURCES`, benchmark… | add an ETF/stock |
+| `etfs.py` | ISIN, issuer and strategy bucket of popular European ETFs, to copy into `config_local.py` | add an ETF to the list |
 | `web/pages/overview.py` | Overview page: balance, breakdown, value and growth over time | change or add charts on that page |
 | `web/pages/returns.py` | MWR / TWR, money put in vs gain, the "same savings in the benchmark" comparison | — |
 | `web/pages/exposure.py` | Look-through vs the benchmark: countries, sectors, companies, overlap… | — |
@@ -32,7 +35,7 @@ Then open http://127.0.0.1:8050. The server restarts by itself whenever you save
 | `web/data.py` | Loads snapshots and cash flows, runs `mwr.py`, `lookthrough.py` and `backtest.py` (cached) | add a new data source |
 | `web/blocks.py` | The building blocks a page is made of: `kpis`, `chart`, `table`, `items`, `notes`… | add a new block type |
 | `web/theme.py` | Colours, number formats (`eur`, `pct`) and the Plotly chart style | restyle every chart at once |
-| `app.py` | URL routes only | add an API endpoint |
+| `app.py` | URL routes only (also registers Gastos' routes from `gastos/routes.py`) | add an API endpoint |
 | `templates/`, `static/` | The browser side. It has no finance logic: it draws whatever the Python pages return | change the look |
 
 `mwr.py`, `lookthrough.py` and `backtest.py` do the calculations and downloads, and can also be used on their

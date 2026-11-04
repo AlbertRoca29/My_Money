@@ -199,7 +199,7 @@ def plot_monthly(snaps, flows, max_gap_days=45):
     return fig
 
 
-def simulate(snaps, flows, prices, cash_fixed=3000, cash_pct=0.05):
+def simulate(snaps, flows, prices, cash_fixed=0, cash_pct=0.0):
     """Daily value of an alternative you: the first snapshot's value and the same savings, but held as
     cash_fixed + cash_pct of the total in cash (0%) and the rest in `prices` (EUR, daily), rebalanced
     whenever money comes in or goes out. Values are taken before that day's flow, like the snapshots."""

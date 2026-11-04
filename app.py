@@ -1,7 +1,11 @@
-"""My Money — the portfolio tracker as a website.
+"""My Money — Gastos (expenses and income) and the portfolio tracker, on one website.
 
 Run it:
     .venv/bin/python app.py          then open http://127.0.0.1:8050
+    MY_MONEY_HOST=0.0.0.0 .venv/bin/python app.py     to open it from your phone on the same Wi-Fi
+
+    /               Gastos, the default (gastos/: its own blueprint, plain HTML/JS in gastos/web/)
+    /portfolio      the portfolio tracker (everything below)
 
 How it fits together
     config.py          every setting (folders, colours, fund sources, backtest options...)
@@ -11,8 +15,9 @@ How it fits together
     web/theme.py       colours, number formats and the Plotly chart style
     templates/, static/  the browser side: it only draws what the Python pages return
 
-This file only maps URLs to those functions. Every route returns JSON except "/".
+This file only maps URLs to those functions. Every route returns JSON except "/portfolio".
 """
+import os
 import tempfile
 from pathlib import Path
 
@@ -20,14 +25,16 @@ import plotly
 from flask import Flask, abort, jsonify, render_template, request, send_file
 
 import config
+from gastos.routes import bp as gastos
 from web import data
 from web.pages import PAGES
 
 app = Flask(__name__)
 app.json.sort_keys = False  # keep categories and assets in the order they were written
+app.register_blueprint(gastos)  # "/" and its /api/entries, /api/receipts… routes
 
 
-@app.get("/")
+@app.get("/portfolio")
 def index():
     """The single HTML page. Navigation between pages happens in the browser (static/app.js)."""
     return render_template("index.html", pages={k: m.TITLE for k, m in PAGES.items()})
@@ -104,4 +111,4 @@ def sheet_sync():
 
 if __name__ == "__main__":
     # debug=True: the server restarts by itself whenever you save a .py file
-    app.run(host=config.HOST, port=config.PORT, debug=True)
+    app.run(host=os.environ.get("MY_MONEY_HOST", config.HOST), port=config.PORT, debug=True)

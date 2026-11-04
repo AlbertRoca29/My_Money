@@ -13,7 +13,10 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="#/overview">My&nbsp;Money</a>
+    <nav class="apps" aria-label="Switch app">
+      <a href="/" style="--dot:var(--orange)">Gastos</a>
+      <a href="/portfolio" class="on" aria-current="page" style="--dot:var(--blue)">Portfolio</a>
+    </nav>
     <nav class="tabs" id="tabs">
       {% for key, title in pages.items() %}
       <a href="#/{{ key }}" data-page="{{ key }}">{{ title }}</a>

@@ -787,8 +787,12 @@ def tables(r, n_countries=25, n_holdings=50):
 # ---------------------------------------------------------------------------
 PORTFOLIO_C, BENCH_C, DIRECT_C = "#2a78d6", "#eb6834", "#1baf7a"
 OVER_C, UNDER_C = "#2a78d6", "#e34948"
-BUCKET_COLORS = {"Core index": "#2a78d6", "Value": "#eda100", "Small-cap value": "#4a3aa7",
-                 "Momentum": "#e87ba4", "Emerging markets": "#008300", "Direct stocks": "#1baf7a"}
+BUCKET_COLORS = {"Core index": "#2a78d6", "US": "#3f5fa8", "Europe": "#5fa8d3", "Japan & Pacific": "#c0392b",
+                 "Emerging markets": "#008300", "Small-cap": "#7d6bd1", "Small-cap value": "#4a3aa7",
+                 "Value": "#eda100", "Momentum": "#e87ba4", "Quality": "#0f9b8e", "Minimum volatility": "#8aa1b1",
+                 "Multi-factor": "#b5651d", "Dividend": "#d4a017", "ESG": "#6aa84f", "Sector & theme": "#a64d79",
+                 "Real estate": "#8d6e63", "Bonds": "#5c6f80", "Money market": "#a9b4c2",
+                 "Gold & commodities": "#c9a227", "Direct stocks": "#1baf7a"}
 SEQUENTIAL = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
 SURFACE, INK, INK_2, MUTED, GRID, BASELINE = "#fcfcfb", "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#c3c2b7"
 

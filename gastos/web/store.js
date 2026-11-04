@@ -1,4 +1,4 @@
-// The only file that knows where the data lives. Today: the Flask API in server.py.
+// The only file that knows where the data lives. Today: the Flask API in routes.py.
 // To move to GitHub Pages + a hosted database (Supabase, Firebase…), rewrite these functions with the
 // same names and return shapes; nothing else in web/ needs to change.
 
@@ -68,7 +68,7 @@ export async function uploadReceipt(file) {
   return (await call("POST", "api/receipts", form)).receipt;
 }
 
-// A URL to show a stored receipt, or null for ones that stayed in AppSheet's Drive folder.
+// A URL to show a stored receipt, or null for old ones that stayed in Google Drive.
 export const receiptUrl = (name) => (name && !name.includes("/") ? `receipts/${name}` : null);
 
 export const importSheet = () => call("POST", "api/import-sheet");

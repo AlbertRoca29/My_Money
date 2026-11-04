@@ -7,6 +7,7 @@
   --panel: #F4F5F7;
   --surface: #FFFFFF;
   --blue: #0666EB;
+  --orange: #EE5D12;   /* Gastos' colour, for the app switcher */
   --pos: #00A86B;
   --neg: #E5484D;
   --radius-xl: 32px;
@@ -30,15 +31,24 @@ button, input, select { font: inherit; color: inherit; }
 .topbar {
   position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; gap: 24px;
-  padding: 14px clamp(16px, 4vw, 48px);
+  padding: calc(14px + env(safe-area-inset-top)) clamp(16px, 4vw, 48px) 14px;
   background: rgba(255,255,255,0.86); backdrop-filter: saturate(180%) blur(18px);
   -webkit-backdrop-filter: saturate(180%) blur(18px);
 }
-.brand { font: 700 22px/1 var(--display); letter-spacing: -0.04em; white-space: nowrap; }
+/* App switcher. The top bar and this block are the same in gastos/web/style.css, so the switcher sits in
+   exactly the same spot on both halves. Gastos is orange, Portfolio blue. */
+.apps { display: flex; flex: none; height: 40px; background: var(--panel); border-radius: 999px; padding: 3px; }
+.apps a {
+  display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px 6px 10px; border-radius: 999px;
+  font: 600 14px/1.2 var(--display); letter-spacing: -0.01em; color: var(--muted); white-space: nowrap;
+}
+.apps a::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--dot); opacity: .45; }
+.apps a.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.apps a.on::before { opacity: 1; }
 .tabs { display: flex; gap: 4px; flex: 1; overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
 .tabs a {
-  padding: 9px 16px; border-radius: 999px; font-weight: 500; color: var(--ink-2);
+  padding: 9px 16px; border-radius: 999px; font-weight: 500; line-height: 22px; color: var(--ink-2);
   white-space: nowrap; transition: background .15s, color .15s;
 }
 .tabs a:hover { background: var(--panel); color: var(--ink); }
@@ -56,6 +66,7 @@ button, input, select { font: inherit; color: inherit; }
 .pill-light { background: var(--panel); color: var(--ink); }
 .pill-light:hover { background: #E9EBEE; }
 .pill .plus { font-size: 18px; line-height: 1; margin-top: -2px; }
+#new-snapshot { height: 40px; padding: 0 18px; }   /* every top bar item is 40px tall, as in Gastos */
 
 /* ---------- Layout ---------- */
 main { max-width: 1320px; margin: 0 auto; padding: 8px clamp(16px, 4vw, 48px) 80px; }
@@ -225,11 +236,11 @@ td .bar { display: inline-block; height: 6px; border-radius: 3px; background: va
   .card.half { grid-column: span 2; }
 }
 @media (max-width: 640px) {
-  .topbar { flex-wrap: wrap; gap: 10px 12px; padding-top: 12px; padding-bottom: 10px; }
-  .brand { flex: 1; }
+  .topbar { flex-wrap: wrap; gap: 10px 12px; padding-top: calc(12px + env(safe-area-inset-top)); padding-bottom: 10px; }
+  .apps { margin-right: auto; }
   .tabs { order: 3; flex-basis: 100%; margin: 0 calc(-1 * clamp(16px, 4vw, 48px)); padding: 0 clamp(16px, 4vw, 48px); }
   .tabs::after { content: ""; flex: 0 0 12px; } /* right padding is ignored in a scrolling flex row */
-  #new-snapshot { padding: 9px 16px; }
+  #new-snapshot { padding: 0 16px; }
   .hero { min-height: 240px; border-radius: var(--radius-lg); }
   .hero .value { font-size: clamp(44px, 14vw, 56px); }
   .field { width: 100%; justify-content: space-between; }

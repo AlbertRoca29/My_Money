@@ -1,7 +1,7 @@
 """Storage for Gastos: one SQLite table of entries (expenses and income), plus the Google Sheet import.
 
 An entry:
-    id             8 hex characters, the same kind of ID AppSheet used, so sheet rows keep theirs
+    id             8 hex characters, the same kind of ID as the sheet rows, so imported rows keep theirs
     kind           "expense" or "income"
     name           what it was ("Supermarket", "Salary"…)
     category       "🛒 Groceries" for expenses, "💼 Job" for income…
@@ -9,10 +9,10 @@ An entry:
     amount         euros, always positive. For income: the amount that reached the account
     gross          income only, optional: the amount before taxes
     paid_by_other  1 when someone else (job, family) paid for it: kept in the list, left out of every total
-    receipt        file name in receipts/, or the old AppSheet path ("GASTOS_Images/…")
+    receipt        file name in receipts/, or an old path from the sheet ("folder/…", a file left in Google Drive)
     note           free text
 
-The browser never talks to this file directly — only through server.py's /api routes — so the
+The browser never talks to this file directly — only through routes.py's /api routes — so the
 database can later be swapped for a hosted one without touching the front-end's screens.
 """
 import csv
@@ -29,12 +29,15 @@ HERE = Path(__file__).parent
 DB_PATH = HERE / "gastos.db"
 RECEIPTS = HERE / "receipts"
 
-# The AppSheet Google Sheet to import from: set GASTOS_SHEET_URL in the environment or in
-# gastos/config_local.py (git-ignored).
+# The Google Sheet to import from: set GASTOS_SHEET_URL in the environment, in
+# gastos/config_local.py or in the main config_local.py (both git-ignored).
 try:
-    from config_local import GASTOS_SHEET_URL
+    from .config_local import GASTOS_SHEET_URL
 except ImportError:
-    GASTOS_SHEET_URL = os.environ.get("GASTOS_SHEET_URL", "")
+    try:
+        from config_local import GASTOS_SHEET_URL
+    except ImportError:
+        GASTOS_SHEET_URL = os.environ.get("GASTOS_SHEET_URL", "")
 TAB_URL = "https://docs.google.com/spreadsheets/d/{id}/gviz/tq?tqx=out:csv&sheet={tab}"
 
 FIELDS = ["id", "kind", "name", "category", "date", "amount", "gross", "paid_by_other", "receipt", "note"]
@@ -120,7 +123,7 @@ def delete(entry_id):
 
 
 # ---------------------------------------------------------------------------
-# Google Sheet import (the GASTOS and INGRESOS tabs of the AppSheet sheet)
+# Google Sheet import (its GASTOS and INGRESOS tabs)
 # ---------------------------------------------------------------------------
 def _num(text):
     """'1.763,54' or '42,64' -> float; '' -> None."""

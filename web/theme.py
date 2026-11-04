@@ -18,8 +18,12 @@ RED = "#E5484D"        # losses, underweights
 VIOLET = "#8E5CF7"
 SEQUENTIAL = ["#EAF2FE", "#C4DAFC", "#8DB8F8", "#4F8FF2", "#0666EB", "#0450B8", "#023A87"]
 
-BUCKET_COLORS = {"Core index": BLUE, "Value": "#F2B705", "Small-cap value": VIOLET,
-                 "Momentum": "#F0509A", "Emerging markets": "#00A2C7", "Direct stocks": GREEN}
+BUCKET_COLORS = {"Core index": BLUE, "US": "#3F5FA8", "Europe": "#5FA8D3", "Japan & Pacific": "#D64545",
+                 "Emerging markets": "#00A2C7", "Small-cap": "#B79CFA", "Small-cap value": VIOLET,
+                 "Value": "#F2B705", "Momentum": "#F0509A", "Quality": "#0F9B8E", "Minimum volatility": "#8AA1B1",
+                 "Multi-factor": "#C2700B", "Dividend": "#E0B000", "ESG": "#6AA84F", "Sector & theme": "#A64D79",
+                 "Real estate": "#8D6E63", "Bonds": "#5C6F80", "Money market": "#A9B4C2",
+                 "Gold & commodities": "#C9A227", "Direct stocks": GREEN}  # same names as etfs.BUCKETS
 REGION_COLORS = {"Americas": BLUE, "Europe": GREEN, "Middle East & Africa": CORAL,
                  "Asia-Pacific": VIOLET, "Unclassified": MUTED}
 REST_COLOR = "#E3E7EC"
