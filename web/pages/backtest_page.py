@@ -3,17 +3,17 @@
 ETF prices come from justETF (EUR, dividends included). The window starts when the newest fund has
 data; the "longest history" switch swaps short-history funds for long-running stand-ins
 (PROXY / BENCH_PROXY in config.py) so it goes back years further — treat that as indicative.
+Both are settings (settings.py), changed from the ⚙ sheet. On a phone (phone=1) side-by-side charts are stacked.
 """
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 import config
 from web import data
-from web.blocks import chart, empty_page, hero, kpi, kpis, notes, param, section, select, table, toggle
+from web.blocks import chart, empty_page, hero, kpi, kpis, notes, param, section, table
 from web.theme import BASELINE, BLUE, CORAL, GREEN, MUTED, RED, pct, style, tone
 
 TITLE = "Backtest"
-REBALANCE_OPTIONS = [("ME", "Monthly"), ("QE", "Quarterly"), ("YE", "Yearly"), ("none", "Never (buy & hold)")]
 
 
 def _run(p):
@@ -36,10 +36,7 @@ def build(p):
                       (f"{pct(lead, 1, sign=True)}/yr vs {bt['benchmark']}", tone(lead)),
                       (f"Max drawdown {pct(s['Max drawdown %'])}", None)],
                      caption=f"{bt['benchmark']}: {pct(b['Total return %'], 1, sign=True)} over the same window"),
-        "controls": [
-            select("rebalance", "Rebalance", REBALANCE_OPTIONS, param(p, "rebalance", config.REBALANCE or "none")),
-            toggle("proxies", "Longest history (with proxies)", param(p, "proxies", False, bool)),
-        ],
+        "controls": [],
         "sections": [sec(p) for sec in (stats, growth, contributions)],
     }
 
@@ -86,7 +83,7 @@ def growth(p):
     fig.update_yaxes(tickprefix="€", row=1, col=1)
     fig.update_yaxes(ticksuffix="%", title_text="drawdown", row=2, col=1)
     fig.update_yaxes(ticksuffix="%", title_text=f"vs {name}", row=3, col=1)
-    return chart(style(fig, height=680))
+    return chart(style(fig, height=560 if param(p, "phone", False, bool) else 680))
 
 
 @section("Where the performance came from", "Return of each fund over the window, and what it contributed")
@@ -94,8 +91,12 @@ def contributions(p):
     bt, _ = _run(p)
     per = bt["per_position"]
     bench_ret = bt["stats"].loc["Total return %", bt["benchmark"]]
-    fig = make_subplots(rows=1, cols=2, horizontal_spacing=0.22,
+    phone = param(p, "phone", False, bool)
+    # side by side on a computer, one under the other on a phone
+    fig = make_subplots(rows=2 if phone else 1, cols=1 if phone else 2, vertical_spacing=0.12,
+                        horizontal_spacing=0.22,
                         subplot_titles=("Total return (name · weight)", "Contribution (percentage points)"))
+    second = (2, 1) if phone else (1, 2)
     r = per.sort_values("Total return %", ascending=False)
     fig.add_trace(go.Bar(y=[f"{n} · {w:.0f}%" for n, w in zip(r.index, r["Weight %"])], x=r["Total return %"],
                          orientation="h", marker_cornerradius=4,
@@ -110,11 +111,11 @@ def contributions(p):
                          marker_color=[BLUE if v >= 0 else RED for v in c["Contribution pp"]],
                          text=[f"{v:+.1f}" for v in c["Contribution pp"]], textposition="outside",
                          textfont=dict(size=10, color=MUTED), cliponaxis=False,
-                         hovertemplate="%{x:+.2f} pp<extra></extra>"), 1, 2)
+                         hovertemplate="%{x:+.2f} pp<extra></extra>"), *second)
     fig.update_yaxes(autorange="reversed", showgrid=False)
     fig.update_xaxes(showgrid=True, gridcolor="#EEF0F3")
     fig.update_annotations(font=dict(size=13))
-    height = 120 + 34 * len(per)
+    height = (160 + 68 * len(per)) if phone else (120 + 34 * len(per))
     return [chart(style(fig, height=height, legend=False, hover="closest")),
             table(per, {"Weight %": pct, "Total return %": lambda v: pct(v, 1, sign=True),
                         "Contribution pp": lambda v: f"{v:+.2f}"}, toned=("Total return %", "Contribution pp"))]

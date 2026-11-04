@@ -1,7 +1,10 @@
 """Returns: how much the money you put in has earned (MWR / TWR) and how the benchmark ETF would have done.
 
-Net savings come from Gastos: income minus expenses per day (see gastos/db.py daily_net).
+Net savings come from Gastos: income minus expenses per day (see gastos/db.py daily_net). The chips at the
+top pick the period: the last 12 months, or one calendar year (same as Gastos' Stats).
 """
+from datetime import date
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -10,10 +13,30 @@ from plotly.subplots import make_subplots
 import config
 import mwr
 from web import data
-from web.blocks import chart, empty_page, hero, kpi, kpis, notes, section, table
+from web.blocks import chart, chips, duel, empty_page, hero, kpi, kpis, param, section, side, table
 from web.theme import BASELINE, BLUE, CORAL, GREEN, MUTED, RED, eur, frac, style, tone
 
 TITLE = "Returns"
+
+
+def _window(p, snaps):
+    """(period, first snapshot, last snapshot) of the chosen period: "12m" (the default) or a year like "2025".
+    A year runs from the last snapshot on or before 1 January to the last one on or before 31 December."""
+    period = param(p, "period", "12m")
+    last = snaps[-1][0]
+    if period == "12m" or not period.isdigit():
+        since = date(last.year - 1, last.month, min(last.day, 28))
+        return "12m", next(s for s in snaps if s[0] >= since), snaps[-1]
+    y = int(period)
+    before = [s for s in snaps if s[0] <= date(y, 1, 1)]
+    start = before[-1] if before else snaps[0]
+    end = [s for s in snaps if s[0] <= date(y, 12, 31)][-1]
+    return period, start, end
+
+
+def _periods(snaps):
+    years = range(snaps[-1][0].year, snaps[0][0].year - 1, -1)
+    return [("12m", "Last 12 months")] + [(str(y), str(y)) for y in years if date(y, 12, 31) > snaps[0][0]]
 
 
 def build(p):
@@ -22,17 +45,22 @@ def build(p):
     snaps, flows = data.snaps_and_flows()
     if not flows:
         return empty_page("Return on the money you put in", "No savings yet: add your income and expenses in Gastos.")
-    s = mwr.summary(snaps, flows).iloc[0]
-    _, twr_annual = mwr.twr(snaps, flows)
+    period, start, end = _window(p, snaps)
+    r = mwr.mwr(start, end, flows)
+    twr_total, twr_annual = mwr.twr([s for s in snaps if start[0] <= s[0] <= end[0]], flows)
+    short = (end[0] - start[0]).days < 330  # too short to annualise honestly: show the plain return
+    when = "in the last 12 months" if period == "12m" else f"in {period}"
     return {
-        "hero": hero("Return on the money you put in", f"{s['annual']:.1%}",
-                     [(f"{eur(s['gain'], sign=True)} market gain", tone(s["gain"])),
-                      (f"{eur(s['saved'])} saved since {s['from']:%b %Y}", None),
-                      (f"Time-weighted {twr_annual:.1%}/yr", tone(twr_annual))],
-                     caption=f"Savings up to {flows[-1][0]:%d %b %Y} · latest snapshot {snaps[-1][0]:%d %b %Y}",
-                     unit="/yr"),
-        "controls": [],
-        "sections": [sec(p) for sec in (periods, money_in, monthly, vs_benchmark)],
+        "hero": hero("Return on the money you put in",
+                     f"{r['period'] if short else r['annual']:.1%}",
+                     [(f"{eur(r['gain'], sign=True)} market gain", tone(r["gain"])),
+                      (f"{eur(r['saved'])} saved {when}", None),
+                      (f"Time-weighted {twr_total:.1%}" if short else f"Time-weighted {twr_annual:.1%}/yr",
+                       tone(twr_annual))],
+                     caption=f"{start[0]:%d %b %Y} → {end[0]:%d %b %Y} (snapshots)" + (" · not annualised" if short else ""),
+                     unit=None if short else "/yr"),
+        "controls": [chips("period", _periods(snaps), period)],
+        "sections": [sec(p) for sec in (vs_benchmark, periods, money_in, monthly)],
     }
 
 
@@ -89,7 +117,8 @@ def money_in(p):
 @section("Each month: saved vs market gain", "Label = market return that month (gaps over 45 days skipped)")
 def monthly(p, max_gap_days=45):
     snaps, flows = data.snaps_and_flows()
-    iv = mwr.intervals(snaps, flows)
+    _, start, end = _window(p, snaps)
+    iv = mwr.intervals([s for s in snaps if start[0] <= s[0] <= end[0]], flows)
     iv = iv[(pd.to_datetime(iv["to"]) - pd.to_datetime(iv["from"])).dt.days <= max_gap_days]
     month = pd.to_datetime(iv["to"]).dt.to_period("M")
     m = iv.groupby(month)[["saved", "gain"]].sum()
@@ -108,41 +137,37 @@ def monthly(p, max_gap_days=45):
     return chart(style(fig, height=400, barmode="group"))
 
 
-@section(f"Benchmark: the same savings in {config.BENCHMARK_NAME}", "Each alternative starts with your first snapshot's value, gets "
-         "exactly the same savings on the same days, and keeps a cash buffer (earning 0%)")
+def _bench_name(k):
+    return f"{config.BENCHMARK_NAME} + €{k:g}k cash" if k else f"100% {config.BENCHMARK_NAME}"
+
+
+@section("You vs the benchmark", width="full")
 def vs_benchmark(p):
     if not config.BENCHMARK_ISIN:
         return None  # no benchmark set in config_local.py
+    k = param(p, "cash_k", config.BENCHMARK_CASH_K, float)
+    name = _bench_name(k)
     snaps, flows = data.snaps_and_flows()
-    alts = data.alternatives()
-    cmp = mwr.compare(snaps, flows, alts)
-    # one column per scenario: "11.6%/yr · €23,098"
-    table_df = pd.DataFrame({who: [f"{frac(m)}/yr · {eur(e)}" for m, e in zip(cmp[(who, 'MWR / yr')], cmp[(who, 'end')])]
-                             for who in dict.fromkeys(w for w, _ in cmp.columns)}, index=cmp.index)
+    alt = data.alternative(1000 * k)
+    period, start, end = _window(p, snaps)
+    alt_snaps = mwr.at_snapshots(alt, snaps)
+    alt_start, alt_end = (next(a for a in alt_snaps if a[0] == s[0]) for s in (start, end))
+    you, them = mwr.mwr(start, end, flows), mwr.mwr(alt_start, alt_end, flows)
+    lead = you["gain"] - them["gain"]  # same savings on the same days, so the gap is all market
 
-    dates = pd.to_datetime([d for d, _ in snaps])
-    value = pd.Series([v for _, v in snaps], index=dates)
-    put_in = value - pd.Series(np.r_[0, mwr.intervals(snaps, flows)["gain"].cumsum()], index=dates)
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.62, 0.38], vertical_spacing=0.07)
-    fig.add_trace(go.Scatter(x=dates, y=put_in, name=f"Money put in — {eur(put_in.iloc[-1])}",
-                             line=dict(color=MUTED, width=1.5, dash="dot"),
-                             hovertemplate="€%{y:,.0f}<extra>put in</extra>"), 1, 1)
-    lines, colors = [], [CORAL, GREEN, "#F2B705"]
-    for (name, s), c in zip(alts.items(), colors):
-        fig.add_trace(go.Scatter(x=s.index, y=s, name=f"{name} — {eur(s.iloc[-1])}", line=dict(color=c, width=2),
-                                 hovertemplate="€%{y:,.0f}<extra>" + name + "</extra>"), 1, 1)
-        diff = value - s.reindex(dates)
-        fig.add_trace(go.Scatter(x=dates, y=diff, name=f"You vs {name}: {eur(diff.iloc[-1], sign=True)}",
-                                 mode="lines+markers", marker=dict(size=4), line=dict(color=c, width=2),
-                                 hovertemplate="%{y:+,.0f} €<extra>vs " + name + "</extra>"), 2, 1)
-        total, annual = mwr.twr(mwr.at_snapshots(s, snaps), flows)
-        lines.append(f"{name}: time-weighted **{total:.1%}** total, **{annual:.1%}/yr**")
-    fig.add_trace(go.Scatter(x=dates, y=value, name=f"You — {eur(value.iloc[-1])}", line=dict(color=BLUE, width=3),
-                             mode="lines+markers", marker=dict(size=5),
-                             hovertemplate="€%{y:,.0f}<extra>you</extra>"), 1, 1)
-    fig.add_hline(y=0, line=dict(color=BASELINE, width=1), row=2, col=1)
+    dates = pd.to_datetime([d for d, _ in snaps if start[0] <= d <= end[0]])
+    value = pd.Series([v for d, v in snaps if start[0] <= d <= end[0]], index=dates)
+    alt = alt.loc[dates[0]:dates[-1]]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=alt.index, y=alt, name=name, line=dict(color=CORAL, width=2),
+                             hovertemplate="€%{y:,.0f}<extra>" + name + "</extra>"))
+    fig.add_trace(go.Scatter(x=dates, y=value, name="You", line=dict(color=BLUE, width=3), mode="lines+markers",
+                             marker=dict(size=5), hovertemplate="€%{y:,.0f}<extra>you</extra>"))
     fig.update_yaxes(tickprefix="€")
-    you_total, you_annual = mwr.twr(snaps, flows)
-    lines.insert(0, f"You: time-weighted **{you_total:.1%}** total, **{you_annual:.1%}/yr**. "
-                    "Lower chart: above 0 means you are ahead.")
-    return [table(table_df), chart(style(fig, height=600)), notes(lines)]
+    when = "the last 12 months" if period == "12m" else period
+    return {"subtitle": f"The same savings, on the same days, put into {config.BENCHMARK_NAME} with €{k:g}k kept in "
+                        f"cash. Market gain in {when}.",
+            "blocks": [duel(side("You", eur(you["gain"], sign=True), f"{you['annual']:.1%}/yr", BLUE),
+                            side(name, eur(them["gain"], sign=True), f"{them['annual']:.1%}/yr", CORAL),
+                            f"You are **{eur(abs(lead))}** {'ahead' if lead >= 0 else 'behind'}", tone(lead)),
+                       chart(style(fig, height=340))]}

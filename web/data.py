@@ -192,12 +192,10 @@ def benchmark_prices():
 
 
 @cached(savings=True)
-def alternatives():
-    """{name: daily value series} of 'the same savings put into the benchmark' for each CASH_BUFFERS entry."""
+def alternative(cash_eur):
+    """Daily value of 'the same savings put into the benchmark, keeping cash_eur in cash'."""
     snaps, flows = snaps_and_flows()
-    prices = benchmark_prices()
-    return {name: mwr.simulate(snaps, flows, prices, fixed, share)
-            for name, (fixed, share) in config.CASH_BUFFERS.items()}
+    return mwr.simulate(snaps, flows, benchmark_prices(), cash_eur, 0.0)
 
 
 # ---------------------------------------------------------------------------

@@ -26,6 +26,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 import auth
 import config
+import settings
 from gastos.routes import bp as gastos
 from web import data
 from web.pages import PAGES
@@ -52,14 +53,31 @@ def plotly_js():
 
 @app.get("/api/page/<name>")
 def page(name):
-    """Build a page. The query string carries the values of the page's controls."""
+    """Build a page. Its params are the saved settings (settings.py), overridden by the query string, which
+    carries the values of the page's controls (and phone=1 on a small screen)."""
     if name not in PAGES:
         abort(404)
     try:
-        return jsonify(PAGES[name].build(request.args.to_dict()))
+        return jsonify(PAGES[name].build({**settings.current(), **request.args.to_dict()}))
     except Exception as exc:  # e.g. a download failed before any section could run
         app.logger.exception("page %s failed", name)
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+
+
+# ---------------------------------------------------------------------------
+# Settings (the ⚙ sheet; Gastos uses the same ones)
+# ---------------------------------------------------------------------------
+@app.get("/api/settings")
+def get_settings():
+    return jsonify(settings.schema())
+
+
+@app.post("/api/settings")
+def post_settings():
+    try:
+        return jsonify(settings.save(request.get_json(force=True)))
+    except (ValueError, TypeError) as exc:
+        return jsonify({"error": str(exc)}), 400
 
 
 # ---------------------------------------------------------------------------

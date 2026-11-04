@@ -13,6 +13,7 @@ knows how to draw these block types; everything you see is decided here in Pytho
     items     a list of rows                   items([item("Apple", "Stocks", "€1,200")])
     notes     bullet points (**bold** allowed)  notes(["first", "second"])
     text      one paragraph                     text("...")
+    duel      two sides compared, and a verdict duel(side("You", "€23k"), side("VWCE", "€22k"), "You lead")
 
 To add a section to a page, write a function decorated with @section and add it to the page's
 `sections` list. If it raises, only that card shows the error; the rest of the page still loads.
@@ -136,6 +137,16 @@ def text(s):
     return {"type": "text", "html": _md(s)}
 
 
+def side(name, value, sub=None, color=None):
+    """One side of a duel(): a name, a big value and a line under it."""
+    return {"name": name, "value": value, "sub": sub, "color": color}
+
+
+def duel(left, right, verdict=None, tone=None):
+    """Two things side by side, with a one-line verdict under them (tone "pos" / "neg" colours it)."""
+    return {"type": "duel", "sides": [left, right], "verdict": _md(verdict) if verdict else None, "tone": tone}
+
+
 def action(label, url, status=None):
     """A button that POSTs to `url`; the reply's "status" (or "error") is shown and the page reloads."""
     return {"type": "action", "label": label, "url": url, "status": status}
@@ -162,6 +173,12 @@ def number(name, label, value, min=None, max=None, step=1):
 
 def date_input(name, label, value):
     return {"type": "date", "name": name, "label": label, "value": str(value)}
+
+
+def chips(name, options, value):
+    """A row of chips, one of them on. options: [(value, label)]."""
+    return {"type": "chips", "name": name, "options": [{"value": str(v), "label": str(l)} for v, l in options],
+            "value": str(value)}
 
 
 def toggle(name, label, value):

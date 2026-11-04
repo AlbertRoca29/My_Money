@@ -6,6 +6,8 @@
   <meta name="theme-color" content="#FFFFFF">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Gastos</title>
+  <!-- Tab bar layout (Settings > Look), remembered here so the page doesn't jump while settings load -->
+  <script>try { document.documentElement.dataset.nav = localStorage.getItem("mymoney.nav") || "mixed"; } catch {}</script>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon.svg">
@@ -15,12 +17,30 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3.5 10.2 12 3.5l8.5 6.7V19a1.5 1.5 0 0 1-1.5 1.5h-4.2v-6h-5.6v6H5A1.5 1.5 0 0 1 3.5 19z"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.5" cy="6.5" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="17.5" r="1"/></symbol>
+    <symbol id="i-stats" viewBox="0 0 24 24"><path d="M4 20.5h16M6.5 17v-5M12 17V6.5M17.5 17v-8"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H17a1 1 0 0 1 1 1v2"/><path d="M4 7.5v10A2.5 2.5 0 0 0 6.5 20H19a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1H6.5A2.5 2.5 0 0 1 4 7.5z"/><circle cx="16" cy="14.5" r="1"/></symbol>
+    <symbol id="i-growth" viewBox="0 0 24 24"><path d="M3.5 17 9 11.5l4 4L20.5 8"/><path d="M15 8h5.5v5.5"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+  </svg>
+
   <header class="topbar">
-    <nav class="apps" aria-label="Switch app">
-      <a href="./" class="on" aria-current="page" style="--dot:var(--accent)">Gastos</a>
-      <a href="portfolio" style="--dot:var(--blue)">Portfolio</a>
-    </nav>
-    <!-- Wide screens: the tabs and the add button live up here instead of in the bottom tab bar -->
+    <!-- App switcher: one small button; the menu holds both halves. Same markup in ../../templates/index.html -->
+    <div class="switcher">
+      <button class="app-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Switch app (Gastos)" style="--c:var(--accent)">
+        <span class="app-ico"><svg><use href="#i-wallet"/></svg></span><svg class="chev"><use href="#i-chevron"/></svg>
+      </button>
+      <nav class="app-menu" role="menu" hidden>
+        <a href="./" class="on" role="menuitem" style="--c:var(--accent)"><span class="app-ico"><svg><use href="#i-wallet"/></svg></span>
+          <span>Gastos<small>Expenses and income</small></span></a>
+        <a href="portfolio" role="menuitem" style="--c:var(--blue)"><span class="app-ico"><svg><use href="#i-growth"/></svg></span>
+          <span>Portfolio<small>Wealth, returns, exposure</small></span></a>
+      </nav>
+    </div>
     <nav class="tabs">
       <a href="#home" data-tab="home">Home</a>
       <a href="#list" data-tab="list">Movements</a>
@@ -32,18 +52,18 @@
       <span id="month-label"></span>
       <button class="icon-btn" data-step="1" aria-label="Next month">›</button>
     </div>
-    <button class="pill accent" id="add-top"><span class="plus">+</span> Add</button>
+    <button class="pill accent" id="add-top"><svg class="ico"><use href="#i-plus"/></svg>Add</button>
   </header>
 
   <div id="banner" class="banner" hidden></div>
   <main id="view"></main>
 
   <nav class="tabbar">
-    <a href="#home" data-tab="home"><span>◐</span>Home</a>
-    <a href="#list" data-tab="list"><span>≡</span>Movements</a>
-    <button class="fab" id="add" aria-label="Add">+</button>
-    <a href="#stats" data-tab="stats"><span>▥</span>Stats</a>
-    <a href="#settings" data-tab="settings"><span>⚙</span>Settings</a>
+    <a href="#home" data-tab="home"><svg><use href="#i-home"/></svg>Home</a>
+    <a href="#list" data-tab="list"><svg><use href="#i-list"/></svg>Movements</a>
+    <button class="fab" id="add" aria-label="Add"><svg><use href="#i-plus"/></svg></button>
+    <a href="#stats" data-tab="stats"><svg><use href="#i-stats"/></svg>Stats</a>
+    <a href="#settings" data-tab="settings"><svg><use href="#i-settings"/></svg>Settings</a>
   </nav>
 
   <dialog id="sheet" class="sheet"></dialog>

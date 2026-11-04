@@ -36,10 +36,10 @@ ASSET_TYPES = {
 OTHERS_COLOR = "#B79CFA"  # the grouped "Others" band in the stacked charts
 
 # ---------------------------------------------------------------------------
-# Overview page defaults (all of them can also be changed from the page itself)
+# Overview page defaults (the start date can also be changed from the app's settings, see settings.py)
 # ---------------------------------------------------------------------------
 OVERVIEW_START = "2025-09-01"   # first date shown in the trend charts
-GROWTH_WINDOW_DAYS = 60         # "growth per day" is averaged over this many trailing days
+GROWTH_WINDOW_DAYS = 60         # the "Growth" trend line is averaged over this many trailing days
 SMOOTHING_DAYS = 40             # rolling window of the smoothed allocation chart
 ANIMATION_FREQ = "W"            # positions animation: one frame per week ("D", "W", "ME"...)
 
@@ -50,10 +50,9 @@ ANIMATION_FREQ = "W"            # positions animation: one frame per week ("D", 
 BENCHMARK_NAME = "Benchmark"     # how the benchmark ETF is called on the pages
 BENCHMARK_ISIN = None            # its ISIN (justETF, EUR, dividends included)
 
-# Returns page: "what if every euro had gone into the benchmark instead"
-CASH_BUFFERS = {                 # name: (fixed € kept in cash, share of the total kept in cash)
-    "100% benchmark": (0, 0),
-}
+# Returns page: "what if every euro had gone into the benchmark instead, with this many k€ kept in cash"
+# (the default; change it from the app's settings)
+BENCHMARK_CASH_K = 3
 
 # Exposure page (look-through). Every ETF (current or past) needs a data source and a strategy bucket:
 #   "My world ETF": {"ticker": "ABCD", "provider": "ishares" | "vanguard" | "avantis", "id": "<fund id>",

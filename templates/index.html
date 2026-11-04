@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>My Money</title>
+  <!-- Tab bar layout (⚙ > Look), remembered here so the page doesn't jump while settings load -->
+  <script>try { document.documentElement.dataset.nav = localStorage.getItem("mymoney.nav") || "mixed"; } catch {}</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700&display=swap" rel="stylesheet">
@@ -12,17 +14,38 @@
   <script src="/plotly.min.js"></script>
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H17a1 1 0 0 1 1 1v2"/><path d="M4 7.5v10A2.5 2.5 0 0 0 6.5 20H19a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1H6.5A2.5 2.5 0 0 1 4 7.5z"/><circle cx="16" cy="14.5" r="1"/></symbol>
+    <symbol id="i-growth" viewBox="0 0 24 24"><path d="M3.5 17 9 11.5l4 4L20.5 8"/><path d="M15 8h5.5v5.5"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-overview" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5H12z"/><path d="M15 3.9A8.5 8.5 0 0 1 20.1 9H15z"/></symbol>
+    <symbol id="i-returns" viewBox="0 0 24 24"><path d="M3.5 17 9 11.5l4 4L20.5 8"/><path d="M15 8h5.5v5.5"/></symbol>
+    <symbol id="i-exposure" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.3 2.4 3.4 5.2 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.2-3.4-8.5s1.1-6.1 3.4-8.5z"/></symbol>
+    <symbol id="i-backtest" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5"/><path d="M4 4v4.5h4.5M12 8v4l3 2"/></symbol>
+  </svg>
+
   <header class="topbar">
-    <nav class="apps" aria-label="Switch app">
-      <a href="/" style="--dot:var(--orange)">Gastos</a>
-      <a href="/portfolio" class="on" aria-current="page" style="--dot:var(--blue)">Portfolio</a>
-    </nav>
+    <!-- App switcher: one small button; the menu holds both halves. Same markup in gastos/web/index.html -->
+    <div class="switcher">
+      <button class="app-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Switch app (Portfolio)" style="--c:var(--blue)">
+        <span class="app-ico"><svg><use href="#i-growth"/></svg></span><svg class="chev"><use href="#i-chevron"/></svg>
+      </button>
+      <nav class="app-menu" role="menu" hidden>
+        <a href="/" role="menuitem" style="--c:var(--orange)"><span class="app-ico"><svg><use href="#i-wallet"/></svg></span>
+          <span>Gastos<small>Expenses and income</small></span></a>
+        <a href="/portfolio" class="on" role="menuitem" style="--c:var(--blue)"><span class="app-ico"><svg><use href="#i-growth"/></svg></span>
+          <span>Portfolio<small>Wealth, returns, exposure</small></span></a>
+      </nav>
+    </div>
     <nav class="tabs" id="tabs">
       {% for key, title in pages.items() %}
       <a href="#/{{ key }}" data-page="{{ key }}">{{ title }}</a>
       {% endfor %}
     </nav>
-    <button class="pill pill-dark" id="new-snapshot"><span class="plus">+</span> Snapshot</button>
+    <button class="icon-btn gear" id="open-settings" aria-label="Settings"><svg><use href="#i-settings"/></svg></button>
+    <button class="pill pill-dark" id="new-snapshot"><svg class="ico"><use href="#i-plus"/></svg>Snapshot</button>
   </header>
 
   <main id="app">
@@ -52,6 +75,25 @@
       </div>
     </aside>
   </div>
+
+  <!-- Settings: a sheet drawn by app.js from /api/settings (settings.py) -->
+  <div class="sheet-backdrop" id="settings-backdrop" hidden>
+    <aside class="sheet settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="sheet-head">
+        <h2 id="settings-title">Settings</h2>
+        <button class="icon-btn" id="settings-close" aria-label="Close">✕</button>
+      </div>
+      <div id="settings-body"></div>
+      <p class="muted settings-note">Saved for every device. Changes apply as soon as you make them.</p>
+    </aside>
+  </div>
+
+  <!-- Bottom tab bar on phones, when ⚙ > Look says so -->
+  <nav class="tabbar" id="tabbar">
+    {% for key, title in pages.items() %}
+    <a href="#/{{ key }}" data-page="{{ key }}"><svg><use href="#i-{{ key }}"/></svg>{{ title }}</a>
+    {% endfor %}
+  </nav>
 
   <div class="toast" id="toast" hidden></div>
   <script src="{{ url_for('static', filename='app.js') }}"></script>

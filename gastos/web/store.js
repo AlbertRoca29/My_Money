@@ -76,3 +76,7 @@ export const receiptUrl = (name) => (name && !name.includes("/") ? `receipts/${n
 export const info = () => call("GET", "api/info");
 
 export const exportUrl = "api/export.csv";
+
+// Settings shared with the portfolio half (../../settings.py): {values, fields}.
+export const settings = () => call("GET", "api/settings");
+export const saveSettings = (changes) => call("POST", "api/settings", changes);

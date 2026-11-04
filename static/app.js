@@ -58,14 +58,17 @@ function go(page, params) {
 let loadToken = 0;
 async function load() {
   const { page, params } = route();
-  document.querySelectorAll("#tabs a").forEach((a) => a.classList.toggle("active", a.dataset.page === page));
+  document.querySelectorAll("#tabs a, #tabbar a").forEach((a) => a.classList.toggle("active", a.dataset.page === page));
   const tab = $("#tabs a.active"), tabs = $("#tabs");
   if (tab) tabs.scrollTo({ left: tab.offsetLeft - (tabs.clientWidth - tab.offsetWidth) / 2, behavior: "smooth" });
   const token = ++loadToken;
   showSkeleton();
   let res;
   try {
-    const r = await api(`/api/page/${page}?${params}`);
+    // phone=1: the Python pages then stack side-by-side charts and show fewer rows
+    const query = new URLSearchParams(params);
+    if (PHONE.matches) query.set("phone", "1");
+    const r = await api(`/api/page/${page}?${query}`);
     res = await r.json();
   } catch (e) {
     res = { error: `Could not reach the server (${e.message}). Is app.py running?` };
@@ -112,6 +115,20 @@ function renderControls(page, params, controls) {
   const box = $("#controls");
   box.innerHTML = "";
   for (const c of controls) {
+    if (c.type === "chips") {
+      const row = document.createElement("div");
+      row.className = "choice";
+      row.innerHTML = c.options.map((o) => `<button type="button" data-v="${esc(o.value)}" class="${o.value === c.value ? "on" : ""}">${esc(o.label)}</button>`).join("");
+      row.addEventListener("click", (e) => {
+        const b = e.target.closest("button");
+        if (!b) return;
+        const p = new URLSearchParams(params);
+        p.set(c.name, b.dataset.v);
+        go(page, p);
+      });
+      box.appendChild(row);
+      continue;
+    }
     const label = document.createElement("label");
     label.className = c.type === "toggle" ? "field switch" : "field";
     let input;
@@ -211,6 +228,19 @@ const BLOCKS = {
         <div class="main"><div class="title">${esc(r.title)}</div>${r.subtitle ? `<div class="subtitle">${esc(r.subtitle)}</div>` : ""}</div>
         <div class="right"><div class="value">${esc(r.value)}</div>${r.sub_value ? `<div class="sub-value ${r.tone || ""}">${esc(r.sub_value)}</div>` : ""}</div>
       </div>`).join("");
+    body.appendChild(el);
+  },
+
+  duel(body, b) {
+    const el = document.createElement("div");
+    el.className = "duel";
+    el.innerHTML = b.sides.map((x) => `
+      <div class="side" style="--c:${esc(x.color || "var(--line)")}">
+        <div class="name">${esc(x.name)}</div>
+        <div class="big">${esc(x.value)}</div>
+        ${x.sub ? `<div class="sub">${esc(x.sub)}</div>` : ""}
+      </div>`).join("") +
+      (b.verdict ? `<div class="verdict ${b.tone || ""}">${b.verdict}</div>` : ""); // verdict escaped by Python (_md)
     body.appendChild(el);
   },
 
@@ -398,6 +428,67 @@ $("#sheet-save").addEventListener("click", async () => {
   toast(`${res.replaced ? "Replaced" : "Saved"} ${res.saved}`);
   load();
 });
+
+// ---------- App switcher (top left) ----------
+const appBtn = $(".app-btn"), appMenu = $(".app-menu");
+const closeApps = () => { appMenu.hidden = true; appBtn.setAttribute("aria-expanded", "false"); };
+appBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  appMenu.hidden = !appMenu.hidden;
+  appBtn.setAttribute("aria-expanded", String(!appMenu.hidden));
+});
+document.addEventListener("click", (e) => { if (!e.target.closest(".switcher")) closeApps(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeApps(); });
+
+// ---------- Settings (settings.py; Gastos shows its own group in its Settings tab) ----------
+function applyNav(nav) {
+  document.documentElement.dataset.nav = nav || "mixed";
+  try { localStorage.setItem("mymoney.nav", nav || "mixed"); } catch {}
+}
+
+function settingRow(f, v) {
+  const text = `<span>${esc(f.label)}${f.help ? `<small>${esc(f.help)}</small>` : ""}</span>`;
+  const n = `data-setting="${esc(f.name)}"`;
+  if (f.type === "toggle") return `<label class="set-row">${text}<span class="field switch"><input type="checkbox" ${n} ${v ? "checked" : ""}><i></i></span></label>`;
+  if (f.type === "select") return `<label class="set-row">${text}<select ${n}>${f.options.map((o) =>
+    `<option value="${esc(o.value)}" ${o.value === String(v) ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select></label>`;
+  if (f.type === "number") return `<label class="set-row">${text}<input type="number" ${n} value="${esc(v)}" min="${f.min ?? ""}" max="${f.max ?? ""}" step="${f.step ?? 1}" inputmode="decimal"></label>`;
+  return `<label class="set-row">${text}<input type="${esc(f.type)}" ${n} value="${esc(v)}"></label>`;
+}
+
+async function openSettings() {
+  const { values, fields } = await (await api("/api/settings")).json();
+  const groups = [...new Set(fields.map((f) => f.group))].filter((g) => g !== "Gastos");
+  $("#settings-body").innerHTML = groups.map((g) => `<section class="set-group"><h3>${esc(g)}</h3><div class="set-list">
+    ${fields.filter((f) => f.group === g).map((f) => settingRow(f, values[f.name])).join("")}</div></section>`).join("");
+  $("#settings-backdrop").hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function closeSettings() {
+  $("#settings-backdrop").hidden = true;
+  document.body.style.overflow = "";
+}
+
+$("#settings-body").addEventListener("change", async (e) => {
+  const name = e.target.dataset.setting;
+  if (!name) return;
+  const value = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+  if (name === "nav") applyNav(value);
+  const res = await (await api("/api/settings", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [name]: value }),
+  })).json();
+  if (res.error) return toast(res.error, true);
+  toast("Saved");
+  // drop the page's own value for this setting (if any) so the saved one shows
+  const { page, params } = route();
+  if (params.has(name)) { params.delete(name); go(page, params); } else load();
+});
+$("#open-settings").addEventListener("click", openSettings);
+$("#settings-close").addEventListener("click", closeSettings);
+$("#settings-backdrop").addEventListener("click", (e) => { if (e.target.id === "settings-backdrop") closeSettings(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#settings-backdrop").hidden) closeSettings(); });
+api("/api/settings").then((r) => r.json()).then((s) => applyNav(s.values.nav)).catch(() => {});
 
 // ---------- Start ----------
 window.addEventListener("hashchange", load);

@@ -2,6 +2,9 @@
 
 Holdings, fees and valuation ratios are downloaded from iShares, Vanguard and Avantis (cached per day,
 see lookthrough.py). Cash, gold, crypto, options and private markets are excluded.
+
+How many countries / companies the charts show is a setting (settings.py). On a phone (phone=1) the charts
+show fewer rows, stack side-by-side panels and drop the widest table columns.
 """
 import math
 
@@ -12,12 +15,22 @@ from plotly.subplots import make_subplots
 import config
 import lookthrough
 from web import data
-from web.blocks import chart, empty_page, hero, kpi, kpis, notes, number, param, section, table
+from web.blocks import chart, empty_page, hero, kpi, kpis, notes, param, section, table
 from web.theme import (BASELINE, BLUE, BUCKET_COLORS, CORAL, GREEN, INK, MUTED, RED, REGION_COLORS, REST_COLOR,
                        SEQUENTIAL, eur, pct, shades, style, tone)
 
 TITLE = "Exposure"
 CATCH_ALL = lookthrough.CATCH_ALL
+
+
+def _phone(p):
+    return param(p, "phone", False, bool)
+
+
+def _n(p, name):
+    """How many countries / companies to show (Settings > Exposure); at most 12 on a phone."""
+    n = param(p, name, 20, int)
+    return min(n, 12) if _phone(p) else n
 
 
 def _bt():
@@ -69,15 +82,14 @@ def build(p):
                       (f"Fees ≈ {eur(sp['Cost €/year'])}/yr", None)],
                      caption=f"Look-through of the {r['date'][6:]}/{r['date'][4:6]}/{r['date'][:4]} snapshot · "
                              f"fund data as of {r['benchmark']['as_of']}"),
-        "controls": [number("countries", "Countries shown", param(p, "countries", 20, int), min=5, max=60),
-                     number("companies", "Companies shown", param(p, "companies", 20, int), min=5, max=50)],
-        "sections": [s(p) for s in (insights, scorecard, positions, market, regions, sectors, currencies,
+        "controls": [],
+        "sections": [s(p) for s in (scorecard, positions, market, regions, sectors, currencies,
                                      countries, active, active_companies, top_holdings, attribution,
-                                     country_pies, fund_profiles, concentration, overlap, holdings_table)],
+                                     country_pies, fund_profiles, concentration, overlap, holdings_table, insights)],
     }
 
 
-@section("Key insights")
+@section("Notes", "What stands out in the numbers above")
 def insights(p):
     return notes(data.lookthrough_result()["insights"])
 
@@ -95,7 +107,8 @@ def scorecard(p):
 
 @section("Positions", "What each holding is and where its data comes from", width="half")
 def positions(p):
-    df = _tables()["positions"][["Bucket", "Data from", "€", "Weight %", "TER %", "P/E", "EM %"]]
+    cols = ["Bucket", "€", "Weight %", "TER %"] if _phone(p) else ["Bucket", "Data from", "€", "Weight %", "TER %", "P/E", "EM %"]
+    df = _tables()["positions"][cols]
     return table(df, {"€": eur, "Weight %": pct, "TER %": lambda v: pct(v, 2), "EM %": pct,
                       "P/E": lambda v: "—" if v != v or v is None else f"{v:.1f}"}, bar="Weight %")
 
@@ -127,7 +140,7 @@ def currencies(p):
 
 @section("Countries")
 def countries(p):
-    n, bt = param(p, "countries", 20, int), _bt()
+    n, bt = _n(p, "countries"), _bt()
     df = _tables()["countries"].drop(CATCH_ALL, errors="ignore")
     us = df.loc["United States"] if "United States" in df.index else None
     df = df.drop("United States", errors="ignore").head(n)
@@ -138,10 +151,13 @@ def countries(p):
 
 @section("Active weights", "Percentage points over (blue) or under (red) the benchmark")
 def active(p):
-    n, t = param(p, "countries", 20, int), _tables()
+    n, t = _n(p, "countries"), _tables()
     s = t["sectors"]["Active (pp)"].sort_values(ascending=False)
     c = t["countries"]["Active (pp)"].drop(CATCH_ALL, errors="ignore")
     c = c.reindex(c.abs().sort_values(ascending=False).index[:n]).sort_values(ascending=False)
+    if _phone(p):  # one chart under the other
+        return [chart(_diverging(ser).update_layout(title=dict(text=title, x=0, font=dict(size=13)), margin=dict(t=36)))
+                for title, ser in (("Sectors", s), (f"Countries (largest {n} gaps)", c))]
     fig = make_subplots(rows=1, cols=2, subplot_titles=("Sectors", f"Countries (largest {n} gaps)"),
                         horizontal_spacing=0.18)
     for col, ser in ((1, s), (2, c)):
@@ -158,10 +174,12 @@ def active(p):
 
 @section("Companies: biggest over- and underweights")
 def active_companies(p):
-    n, bt = param(p, "companies", 20, int), _bt()
+    n, bt = _n(p, "companies"), _bt()
     a = sorted(data.lookthrough_result().get("active_holdings", []), key=lambda x: x["active"])
     rows = list(reversed(a[-n:])) + [x for x in reversed(a[:n]) if x not in a[-n:]]
     ser = pd.Series([x["active"] for x in rows], index=[x["name"] for x in rows])
+    if _phone(p):  # no room for the labels: they are in the tap-tooltip
+        return {"blocks": [chart(_diverging(ser))], "subtitle": f"Percentage points vs {bt}"}
     labels = [f"{x['weight']:.2f}% vs {x['benchmark_weight']:.2f}%" for x in rows]
     return {"blocks": [chart(_diverging(ser, labels=labels))],
             "subtitle": f"Labels: your weight vs {bt}"}
@@ -169,7 +187,7 @@ def active_companies(p):
 
 @section("Top underlying companies", "Through funds (blue), direct stake (green) and the benchmark weight (coral tick)")
 def top_holdings(p):
-    n, bt = param(p, "companies", 20, int), _bt()
+    n, bt = _n(p, "companies"), _bt()
     t = lookthrough.tables(data.lookthrough_result(), n_holdings=n)["holdings"]
     via = t["Portfolio %"] - t["Direct %"]
     fig = go.Figure()
@@ -190,7 +208,7 @@ def top_holdings(p):
 @section("Where each exposure comes from", "Stacked by strategy bucket; coral tick = benchmark weight")
 def attribution(p):
     r = data.lookthrough_result()
-    bt, attr, n = r["benchmark"]["ticker"], r["attribution"], param(p, "countries", 20, int)
+    bt, attr, n = r["benchmark"]["ticker"], r["attribution"], _n(p, "countries")
     buckets = [b for b in BUCKET_COLORS if b in attr["sectors"]] + [b for b in attr["sectors"] if b not in BUCKET_COLORS]
     figs = []
     for dim, limit in (("sectors", None), ("regions", None), ("countries", n)):
@@ -259,7 +277,7 @@ def country_pies(p):
 @section("What each fund brings", "Sector and country mix of every fund, next to the portfolio and the benchmark (%)")
 def fund_profiles(p):
     r = data.lookthrough_result()
-    n, bt = param(p, "countries", 20, int), r["benchmark"]["ticker"]
+    n, bt = _n(p, "countries"), r["benchmark"]["ticker"]
     cols = [("Portfolio", r["portfolio"]), (f"{bt}", r["benchmark"])]
     cols += [(x["label"], r["funds"][x["ticker"]]) for x in r["positions"] if x["type"] == "ETF" and x["ticker"] != bt]
     blocks = []
@@ -309,5 +327,7 @@ def overlap(p):
 def holdings_table(p):
     bt = _bt()
     t = _tables()["holdings"]
+    if _phone(p):
+        t = t[["Company", "Portfolio %", "€", f"{bt} %"]].head(25)
     return table(t, {"Portfolio %": lambda v: pct(v, 2), "€": eur, f"{bt} %": lambda v: pct(v, 2),
                      "Direct %": lambda v: pct(v, 2) if v else "—"}, index=False)

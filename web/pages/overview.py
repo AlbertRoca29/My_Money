@@ -1,12 +1,11 @@
 """Overview: today's balance, the snapshot breakdown and how the portfolio evolved."""
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 import config
 from web import data
-from web.blocks import chart, date_input, empty_page, hero, item, items, kpi, kpis, number, param, section, select
-from web.theme import BLUE, INK_2, MUTED, BASELINE, eur, pct, shades, style, tone
+from web.blocks import chart, empty_page, hero, item, items, kpi, kpis, param, section, select
+from web.theme import BLUE, MUTED, eur, pct, shades, style, tone
 
 TITLE = "Overview"
 
@@ -15,7 +14,8 @@ TITLE = "Overview"
 # Helpers
 # ---------------------------------------------------------------------------
 def _start(p):
-    return pd.Timestamp(param(p, "start", config.OVERVIEW_START))
+    """First date of the trend charts (Settings > Overview)."""
+    return pd.Timestamp(param(p, "trends_from", config.OVERVIEW_START))
 
 
 def _colors_by_asset(portfolio):
@@ -33,19 +33,6 @@ def _center_label(day, total):
     """Date and total written in the hole of a donut."""
     return [dict(text=f"{day:%d %b %Y}", y=0.57, showarrow=False, font=dict(size=13, color=MUTED)),
             dict(text=f"<b>{eur(total)}</b>", y=0.46, showarrow=False, font=dict(size=28))]
-
-
-def _group(df, mode):
-    """mode "all": every category; otherwise keep Cash and ETFs and sum the rest into "Others"."""
-    df = df.drop(columns=["Total"], errors="ignore")
-    if mode == "all":
-        return df
-    keep = [c for c in ("Cash", "ETFs") if c in df.columns]
-    out = df[keep].copy()
-    rest = [c for c in df.columns if c not in keep]
-    if rest:
-        out["Others"] = df[rest].sum(axis=1)
-    return out
 
 
 def _stacked(df, ysuffix, money):
@@ -83,10 +70,6 @@ def build(p):
                      caption=f"Snapshot of {dates[-1]:%d %B %Y} · {len(dates)} snapshots"),
         "controls": [
             select("snapshot", "Snapshot", snapshot_options, param(p, "snapshot", snapshot_options[0][0])),
-            date_input("start", "Trends from", _start(p).date()),
-            select("group", "Categories", [("simple", "Cash · ETFs · Others"), ("all", "All categories")],
-                   param(p, "group", "simple")),
-            number("window", "Growth window (days)", param(p, "window", config.GROWTH_WINDOW_DAYS, int), min=7, max=365),
         ],
         "sections": [s(p) for s in (snapshot_donut, snapshot_list, value_over_time, growth,
                                      allocation_over_time, smoothed_allocation, animation)],
@@ -144,13 +127,12 @@ def snapshot_list(p):
 @section("Value over time", "Stacked by category, in euros")
 def value_over_time(p):
     _, df_val = data.allocation()
-    df = _group(df_val.loc[_start(p):], param(p, "group", "simple"))
-    return chart(_stacked(df, "", money=True))
+    return chart(_stacked(df_val.loc[_start(p):].drop(columns="Total"), "", money=True))
 
 
-@section("Growth per day", "Total wealth growth: what you added plus market gains, not savings alone")
+@section("Growth", f"Total wealth, savings included, with its {config.GROWTH_WINDOW_DAYS}-day average")
 def growth(p):
-    window = param(p, "window", config.GROWTH_WINDOW_DAYS, int)
+    window = config.GROWTH_WINDOW_DAYS
     _, df_val = data.allocation()
     total = df_val.loc[_start(p):, "Total"].sort_index()
     daily = total.resample("D").interpolate("time")          # snapshots are irregular: use a daily grid
@@ -158,35 +140,26 @@ def growth(p):
     per_day = (daily - daily.shift(window)) / window           # € per day gained over the last `window` days
     overall = (daily.iloc[-1] - daily.iloc[0]) / max((daily.index[-1] - daily.index[0]).days, 1)
 
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.62, 0.38], vertical_spacing=0.06)
+    fig = go.Figure()
     fig.add_trace(go.Scatter(x=total.index, y=total, mode="markers", name="Snapshots",
                              marker=dict(size=7, color=BLUE, opacity=0.35),
-                             hovertemplate="€%{y:,.0f}<extra>Snapshot</extra>"), 1, 1)
+                             hovertemplate="€%{y:,.0f}<extra>Snapshot</extra>"))
     fig.add_trace(go.Scatter(x=trend.index, y=trend, mode="lines", name=f"{window}-day average",
                              line=dict(color=BLUE, width=3, shape="spline"),
-                             hovertemplate="€%{y:,.0f}<extra>average</extra>"), 1, 1)
-    fig.add_trace(go.Scatter(x=per_day.index, y=per_day, mode="lines", name=f"€/day, last {window} days",
-                             line=dict(color=BLUE, width=2), fill="tozeroy", fillcolor="rgba(6,102,235,0.12)",
-                             hovertemplate="€%{y:,.1f}/day<extra></extra>"), 2, 1)
-    fig.add_hline(y=overall, line=dict(color=INK_2, dash="dot", width=1.5), row=2, col=1,
-                  annotation_text=f"whole period €{overall:,.0f}/day", annotation_font_color=INK_2,
-                  annotation_position="top left")
-    fig.add_hline(y=0, line=dict(color=BASELINE, width=1), row=2, col=1)
-    fig.update_yaxes(tickprefix="€", row=1, col=1)
-    fig.update_yaxes(tickprefix="€", row=2, col=1)
+                             hovertemplate="€%{y:,.0f}<extra>average</extra>"))
+    fig.update_yaxes(tickprefix="€")
     last = per_day.dropna()
     head = kpis(kpi(f"Last {window} days", f"{eur(last.iloc[-1])}/day" if len(last) else "—",
                     f"≈ {eur(last.iloc[-1] * 30)}/month" if len(last) else None,
                     tone(last.iloc[-1]) if len(last) else None),
                 kpi("Whole period", f"{eur(overall)}/day", f"≈ {eur(overall * 30)}/month", tone(overall)))
-    return [head, chart(style(fig, height=520))]
+    return [head, chart(style(fig, height=360))]
 
 
 @section("Allocation over time", "Share of the total per category", width="half")
 def allocation_over_time(p):
     df_pct, _ = data.allocation()
-    df = _group(df_pct.loc[_start(p):], param(p, "group", "simple"))
-    return chart(_stacked(df, "%", money=False).update_yaxes(range=[0, 100]))
+    return chart(_stacked(df_pct.loc[_start(p):], "%", money=False).update_yaxes(range=[0, 100]))
 
 
 @section("Smoothed allocation", f"{config.SMOOTHING_DAYS}-day rolling average", width="half")

@@ -11,6 +11,8 @@ const state = {
   entries: [],
   month: monthKey(new Date()),   // "2026-11"
   list: { q: "", kind: "all", cat: "" },
+  period: "12m",                 // Stats: "12m" (last 12 months) or a year, "2025"
+  settings: {},                  // ../../settings.py values (hide_others, nav…)
 };
 
 // ---------------------------------------------------------------- helpers
@@ -41,6 +43,8 @@ const emoji = (cat) => [...(cat || "")][0] || "•";
 const label = (cat) => (cat || "").replace(/^\S+\s/, "");
 // Entries paid by someone else stay visible but never count towards a total.
 const counts = (e) => !e.paid_by_other;
+// Settings can hide them altogether (Movements and Home).
+const shown = (e) => !(e.paid_by_other && state.settings.hide_others);
 
 function categories(kind) {
   const base = kind === "income" ? INCOME_CATS : EXPENSE_CATS;
@@ -62,6 +66,14 @@ function totals(entries) {
   return { spent, income, saved: income - spent, rate: income ? (income - spent) / income : null };
 }
 const inMonth = (key) => state.entries.filter((e) => e.date.startsWith(key));
+
+// Stats periods: the last 12 months, or one calendar year. Returns the 12 month keys.
+function periodMonths(period) {
+  if (period !== "12m") return Array.from({ length: 12 }, (_, i) => `${period}-${String(i + 1).padStart(2, "0")}`);
+  const now = monthKey(new Date());
+  return Array.from({ length: 12 }, (_, i) => shiftMonth(now, i - 11));
+}
+const years = () => [...new Set(state.entries.map((e) => e.date.slice(0, 4)))].sort().reverse();
 
 function sumBy(entries, keyFn) {
   const m = new Map();
@@ -103,29 +115,38 @@ function catBars(pairs, total) {
     </div>`).join("")}</div>`;
 }
 
-// Grouped bars (income vs spent), one fixed-width slot per month so the whole history fits in a
-// horizontally scrolling strip. Tapping a month opens it on Home.
+// Grouped bars (income vs spent), one slot per month, stretched to the card's width. Tapping a month opens it on Home.
 function monthChart(months) {
-  const slot = 30, bw = 10, H = 180, pad = { t: 10, b: 36 };
+  const slot = 30, bw = 9, H = 170, pad = { t: 10, b: 24 };
   const W = slot * months.length;
   const max = Math.max(1, ...months.flatMap((m) => [m.income, m.spent]));
   const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - v / max);
   const now = monthKey(new Date());
   const bars = months.map((m, i) => {
     const x = i * slot + slot / 2;
-    const year = i === 0 || m.key.endsWith("-01") ? `<text x="${x}" y="${H - 6}" text-anchor="middle" class="yr">${m.key.slice(0, 4)}</text>` : "";
     return `<g class="mbar" data-month="${m.key}">
-      <rect class="hit" x="${x - slot / 2}" y="0" width="${slot}" height="${H - pad.b + 16}" rx="6" fill="transparent"/>
+      <rect class="hit" x="${x - slot / 2}" y="0" width="${slot}" height="${H}" rx="6" fill="transparent"/>
       <rect x="${x - bw - 1}" y="${y(m.income)}" width="${bw}" height="${H - pad.b - y(m.income)}" rx="2" fill="var(--pos)"/>
       <rect x="${x + 1}" y="${y(m.spent)}" width="${bw}" height="${H - pad.b - y(m.spent)}" rx="2" fill="var(--neg)"/>
-      <text x="${x}" y="${H - pad.b + 14}" text-anchor="middle" class="${m.key === now ? "cur" : ""}">${monthName(m.key, { month: "narrow" })}</text>${year}
+      <text x="${x}" y="${H - 6}" text-anchor="middle" class="${m.key === now ? "cur" : ""}">${monthName(m.key, { month: "narrow" })}</text>
       <title>${monthName(m.key)} — income ${eur0(m.income)}, spent ${eur0(m.spent)}</title>
     </g>`;
   }).join("");
-  return `<div class="chart-scroll"><svg class="chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Income and spending per month">
-    <line x1="0" x2="${W}" y1="${H - pad.b}" y2="${H - pad.b}" stroke="var(--line)"/>${bars}</svg></div>
-    <div class="legend"><span><i style="background:var(--pos)"></i>Income</span><span><i style="background:var(--neg)"></i>Spent</span><span class="muted">Scroll left for earlier months</span></div>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Income and spending per month">
+    <line x1="0" x2="${W}" y1="${H - pad.b}" y2="${H - pad.b}" stroke="var(--line)"/>${bars}</svg>
+    <div class="legend"><span><i style="background:var(--pos)"></i>Income</span><span><i style="background:var(--neg)"></i>Spent</span><span class="muted">Tap a month to open it</span></div>`;
 }
+
+// The month's spending as one stacked bar, then the biggest categories (the rest summed as "Other").
+function catStack(pairs, total) {
+  if (!pairs.length) return `<p class="empty">Nothing spent yet.</p>`;
+  const top = pairs.slice(0, 5), rest = pairs.slice(5).reduce((a, [, v]) => a + v, 0);
+  const parts = [...top.map(([c, v]) => [label(c), v, colorOf(c)]), ...(rest ? [["Other", rest, "#C9CED4"]] : [])];
+  return `<div class="stack">${parts.map(([, v, c]) => `<i style="flex:${v};background:${c}"></i>`).join("")}</div>
+    <div class="legend-list">${parts.map(([n, v, c]) => `<div><i style="background:${c}"></i><span>${esc(n)}</span><b>${eur0(v)}</b><em>${pct(v / total)}</em></div>`).join("")}</div>`;
+}
+
+const catOptions = (kind, cur) => categories(kind).map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("");
 
 // ---------------------------------------------------------------- views
 const views = {
@@ -139,23 +160,25 @@ const views = {
       .filter((e) => e.date.slice(8) <= upTo)).spent).filter((v) => v > 0);
     const avg = prev.length ? prev.reduce((a, b) => a + b, 0) / prev.length : null;
     const vs = avg ? (t.spent - avg) / avg : null;
-    const avgLabel = upTo === "31" ? "6-month average" : `usual by day ${Number(upTo)}`;
+    const avgLabel = upTo === "31" ? "the 6-month average" : `usual by day ${Number(upTo)}`;
     const byCat = sumBy(month.filter((e) => e.kind === "expense" && counts(e)), (e) => e.category);
+    const latest = month.filter(shown).slice(0, 5);
     return `
-      <div class="wide split"><section class="hero">
-        <div class="eyebrow">Spent in ${esc(monthName(state.month, { month: "long" }))}</div>
-        <div class="big">${eur(t.spent)}</div>
-        ${vs === null ? "" : `<div class="delta ${vs > 0 ? "neg" : "pos"}">${vs > 0 ? "▲" : "▼"} ${pct(Math.abs(vs))} vs ${avgLabel} (${eur0(avg)})</div>`}
-      </section>
-      <section class="tiles">
-        <div class="tile"><span>Income</span><b class="pos">${eur0(t.income)}</b></div>
-        <div class="tile"><span>Saved</span><b class="${t.saved < 0 ? "neg" : ""}">${eur0(t.saved)}</b></div>
-        <div class="tile"><span>Savings rate</span><b>${t.rate === null ? "—" : pct(t.rate)}</b></div>
-      </section></div>
-      <section class="card"><h2>By category</h2>${catBars(byCat, t.spent)}</section>
+      <div class="wide">
+        <section class="hero">
+          <div class="eyebrow">Spent in ${esc(monthName(state.month, { month: "long" }))}</div>
+          <div class="big">${eur(t.spent)}</div>
+          ${vs === null ? "" : `<div class="delta"><b class="${vs > 0 ? "neg" : "pos"}">${vs > 0 ? "+" : "−"}${pct(Math.abs(vs))}</b> vs ${avgLabel}</div>`}
+        </section>
+        <div class="duo">
+          <div><span>Income</span><b class="pos">${eur0(t.income)}</b></div>
+          <div><span>Saved</span><b class="${t.saved < 0 ? "neg" : ""}">${eur0(t.saved)}${t.rate === null ? "" : `<small>${pct(t.rate)}</small>`}</b></div>
+        </div>
+      </div>
+      <section class="card"><h2>Where it went</h2>${catStack(byCat, t.spent)}</section>
       <section class="card">
         <h2>Latest <a href="#list" class="link">See all</a></h2>
-        ${month.length ? `<div class="rows">${month.slice(0, 6).map(row).join("")}</div>` : `<p class="empty">No movements this month. Tap + to add one.</p>`}
+        ${latest.length ? `<div class="rows">${latest.map(row).join("")}</div>` : `<p class="empty">Nothing this month yet.</p>`}
       </section>`;
   },
 
@@ -164,6 +187,7 @@ const views = {
     const needle = q.trim().toLowerCase();
     // A search looks through every month; otherwise only the selected one.
     let items = needle ? state.entries.filter((e) => `${e.name} ${e.category} ${e.note || ""}`.toLowerCase().includes(needle)) : inMonth(state.month);
+    items = items.filter(shown);
     // Expenses paid by others are listed (struck through) but never added to a total.
     if (kind === "expense") items = items.filter((e) => e.kind === "expense");
     if (kind === "income") items = items.filter((e) => e.kind === "income");
@@ -175,8 +199,10 @@ const views = {
       <div class="filters">
         <input id="q" type="search" placeholder="Search all months…" value="${esc(q)}" autocomplete="off">
         <div class="chips">${chip("all", "All")}${chip("expense", "Expenses")}${chip("income", "Income")}</div>
-        <select id="cat"><option value="">All categories</option>
-          ${[...categories("expense"), ...categories("income")].map((c) => `<option ${c === cat ? "selected" : ""}>${esc(c)}</option>`).join("")}
+        <select id="cat"><option value="">${kind === "income" ? "All income" : kind === "expense" ? "All expenses" : "All categories"}</option>
+          ${kind === "all"
+            ? ["expense", "income"].map((k) => `<optgroup label="${k === "income" ? "Income" : "Expenses"}">${catOptions(k, cat)}</optgroup>`).join("")
+            : catOptions(kind, cat)}
         </select>
       </div>
       <div class="days">
@@ -189,18 +215,14 @@ const views = {
       </div>`;
   },
 
-  // Stats always cover the last 12 months up to today; the chart scrolls back through all history.
+  // Stats cover the last 12 months, or one calendar year (the chips at the top).
   stats() {
-    const now = monthKey(new Date());
-    const keys = Array.from({ length: 12 }, (_, i) => shiftMonth(now, i - 11));
+    const period = state.period, keys = periodMonths(period), now = monthKey(new Date());
     const months = keys.map((key) => ({ key, ...totals(inMonth(key)) }));
-    const first = state.entries.at(-1)?.date.slice(0, 7) || now;
-    const history = [];
-    for (let k = first; k <= now; k = shiftMonth(k, 1)) history.push({ key: k, ...totals(inMonth(k)) });
     const active = months.filter((m) => m.spent || m.income);
     const n = active.length || 1;
     const sum = (f) => active.reduce((a, m) => a + m[f], 0);
-    const range = state.entries.filter((e) => e.date >= keys[0] && e.date.slice(0, 7) <= now);
+    const range = state.entries.filter((e) => keys.includes(e.date.slice(0, 7)));
     const spentAll = range.filter((e) => e.kind === "expense" && counts(e));
     const byCat = sumBy(spentAll, (e) => e.category).map(([c, v]) => [c, v / n]);
     const places = [...spentAll.reduce((m, e) => {
@@ -211,14 +233,16 @@ const views = {
     }, new Map()).values()].sort((a, b) => b.total - a.total).slice(0, 10);
     const income = sumBy(range.filter((e) => e.kind === "income"), (e) => e.category);
     const incomeTotal = income.reduce((a, [, v]) => a + v, 0);
+    const chip = (v, txt) => `<button class="chip ${period === v ? "on" : ""}" data-period="${v}">${txt}</button>`;
     return `
-      <p class="summary wide">Last 12 months, up to ${esc(monthName(now))}</p>
+      <div class="period wide">${chip("12m", "Last 12 months")}${years().map((y) => chip(y, y)).join("")}</div>
+      <p class="summary wide">${period === "12m" ? `${esc(monthName(keys[0]))} – ${esc(monthName(now))}` : `January – December ${period}`}</p>
       <section class="tiles wide">
-        <div class="tile"><span>Avg spent / month</span><b>${eur0(sum("spent") / n)}</b></div>
-        <div class="tile"><span>Avg income / month</span><b class="pos">${eur0(sum("income") / n)}</b></div>
+        <div class="tile"><span>Spent / month</span><b>${eur0(sum("spent") / n)}</b></div>
+        <div class="tile"><span>Income / month</span><b class="pos">${eur0(sum("income") / n)}</b></div>
         <div class="tile"><span>Savings rate</span><b>${sum("income") ? pct((sum("income") - sum("spent")) / sum("income")) : "—"}</b></div>
       </section>
-      <section class="card wide"><h2>Income vs spent</h2>${monthChart(history)}</section>
+      <section class="card wide"><h2>Income vs spent</h2>${monthChart(months)}</section>
       <section class="card"><h2>Average per month by category</h2>${catBars(byCat, byCat.reduce((a, [, v]) => a + v, 0))}</section>
       <section class="card"><h2>Where the money goes</h2>
         ${places.length ? `<ol class="places">${places.map((p) => `<li><span>${esc(emoji(p.cat))} ${esc(p.name)} <span class="muted">×${p.n}</span></span><b>${eur0(p.total)}</b></li>`).join("")}</ol>` : `<p class="empty">Nothing yet.</p>`}
@@ -228,7 +252,10 @@ const views = {
 
   settings() {
     const first = state.entries.at(-1)?.date, last = state.entries[0]?.date;
+    const fields = (state.settingsFields || []).filter((f) => f.group === "Gastos" || f.group === "Look");
     return `
+      ${fields.length ? `<section class="card"><h2>Preferences</h2><div class="prefs">${fields.map(prefField).join("")}</div>
+        <p class="muted small" style="margin-top:8px">The portfolio's settings are behind the ⚙ button there.</p></section>` : ""}
       <section class="card"><h2>Data</h2>
         <p>${state.entries.length} movements${first ? `, from ${esc(first)} to ${esc(last)}` : ""}.</p>
         <div class="actions">
@@ -247,6 +274,30 @@ const views = {
   },
 };
 
+function prefField(f) {
+  const v = state.settings[f.name];
+  const text = `<span>${esc(f.label)}${f.help ? `<small>${esc(f.help)}</small>` : ""}</span>`;
+  if (f.type === "toggle") return `<label class="pref">${text}<span class="switch-ui"><input type="checkbox" data-setting="${f.name}" ${v ? "checked" : ""}><i></i></span></label>`;
+  if (f.type === "select") return `<label class="pref">${text}<select data-setting="${f.name}">${f.options.map((o) =>
+    `<option value="${esc(o.value)}" ${o.value === v ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select></label>`;
+  return "";
+}
+
+function applyNav() {
+  const nav = state.settings.nav || "mixed";
+  document.documentElement.dataset.nav = nav;
+  try { localStorage.setItem("mymoney.nav", nav); } catch {}
+}
+
+async function loadSettings() {
+  try {
+    const { values, fields } = await store.settings();
+    state.settings = values; state.settingsFields = fields;
+    applyNav();
+    render();
+  } catch {}
+}
+
 // ---------------------------------------------------------------- add / edit sheet
 // Amounts accept sums like "12,5 + 3.20".
 function parseAmount(text) {
@@ -260,11 +311,29 @@ function openSheet(entry = null) {
   const dlg = $("#sheet");
   let kind = e.kind, category = e.category, receipt = e.receipt || null, receiptFile = null, catTouched = !!entry;
 
-  const names = (k) => [...new Set(state.entries.filter((x) => x.kind === k).map((x) => x.name))].slice(0, 400);
+  // Names typed before for this kind, most used first: shown as chips under the field, never as a dropdown.
+  function names() {
+    const n = new Map();
+    for (const x of state.entries) if (x.kind === kind) n.set(x.name, (n.get(x.name) || 0) + 1);
+    return [...n].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+  }
   const lastCat = (name) => state.entries.find((x) => x.kind === kind && x.name.toLowerCase() === name.trim().toLowerCase())?.category;
+
+  function suggestions(typed) {
+    const q = typed.trim().toLowerCase();
+    const all = names();
+    const hits = q ? all.filter((n) => n.toLowerCase().includes(q) && n.toLowerCase() !== q) : all;
+    return hits.slice(0, 8).map((n) => `<button type="button" data-name="${esc(n)}">${esc(n)}</button>`).join("");
+  }
+  const showCat = () => {
+    const el = $(".cat-name", dlg);
+    el.textContent = category ? label(category) : "Pick a category";
+    el.classList.toggle("on", !!category);
+  };
 
   function draw() {
     const url = store.receiptUrl(receipt);
+    const attach = kind === "income" ? "Attach payslip, receipt or voucher" : "Add receipt photo";
     dlg.innerHTML = `<form method="dialog" class="sheet-body" novalidate>
       <div class="grab"></div>
       <div class="seg">
@@ -272,18 +341,20 @@ function openSheet(entry = null) {
         <button type="button" data-k="income" class="${kind === "income" ? "on" : ""}">Income</button>
       </div>
       <input class="amount" name="amount" inputmode="decimal" placeholder="0,00 €" value="${esc(e.amount)}" autocomplete="off" required>
-      <input name="name" list="names" placeholder="${kind === "income" ? "From…" : "Where / what…"}" value="${esc(e.name)}" autocomplete="off" required>
-      <datalist id="names">${names(kind).map((n) => `<option value="${esc(n)}">`).join("")}</datalist>
-      <div class="cats">${categories(kind).map((c) => `<button type="button" class="cat ${c === category ? "on" : ""}" data-cat="${esc(c)}" style="--c:${colorOf(c)}">${esc(emoji(c))}<span>${esc(label(c))}</span></button>`).join("")}</div>
+      <input name="name" placeholder="${kind === "income" ? "From…" : "Where / what…"}" value="${esc(e.name)}"
+        autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done" required>
+      <div class="sugg">${suggestions(e.name)}</div>
+      <div class="cats">${categories(kind).map((c) => `<button type="button" class="cat ${c === category ? "on" : ""}" data-cat="${esc(c)}" title="${esc(label(c))}" aria-label="${esc(label(c))}" style="--c:${colorOf(c)}">${esc(emoji(c))}</button>`).join("")}</div>
+      <div class="cat-name"></div>
       <div class="grid2">
         <label>Date<input type="date" name="date" value="${esc(e.date)}" required></label>
         ${kind === "income"
           ? `<label>Gross (before tax)<input name="gross" inputmode="decimal" placeholder="optional" value="${esc(e.gross ?? "")}"></label>`
-          : `<label class="switch"><input type="checkbox" name="paid_by_other" ${e.paid_by_other ? "checked" : ""}><span>Paid by others<small>job, family… not counted</small></span></label>`}
+          : `<label class="toggle-pill"><input type="checkbox" name="paid_by_other" ${e.paid_by_other ? "checked" : ""}>Someone else paid</label>`}
       </div>
       <input name="note" placeholder="Note (optional)" value="${esc(e.note ?? "")}">
-      ${kind === "expense" ? `<label class="receipt">📎 ${receiptFile ? esc(receiptFile.name) : url ? `<a href="${url}" target="_blank">View receipt</a> · replace` : receipt ? "Receipt kept in Google Drive · replace" : "Add receipt photo"}
-        <input type="file" name="receipt" accept="image/*,application/pdf" hidden></label>` : ""}
+      <label class="receipt">📎 ${receiptFile ? esc(receiptFile.name) : url ? `<a href="${url}" target="_blank">View file</a> · replace` : receipt ? "File kept in Google Drive · replace" : attach}
+        <input type="file" name="receipt" accept="image/*,application/pdf" hidden></label>
       <p class="form-error" hidden></p>
       <div class="sheet-actions">
         ${entry ? `<button type="button" class="pill danger" id="del">Delete</button>` : ""}
@@ -291,6 +362,7 @@ function openSheet(entry = null) {
         <button type="submit" class="pill dark" id="save">${entry ? "Save" : "Add"}</button>
       </div>
     </form>`;
+    showCat();
   }
 
   // Keep what was typed when the sheet redraws (switching kind, picking a receipt).
@@ -312,6 +384,11 @@ function openSheet(entry = null) {
     } else if (btn.dataset.cat) {
       category = btn.dataset.cat; catTouched = true;
       dlg.querySelectorAll(".cat").forEach((b) => b.classList.toggle("on", b === btn));
+      showCat();
+    } else if (btn.dataset.name) {
+      const input = $("[name=name]", dlg);
+      input.value = btn.dataset.name;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
     } else if (btn.id === "cancel") dlg.close();
     else if (btn.id === "del" && confirm(`Delete “${e.name}”?`)) {
       try { await store.deleteEntry(e.id); dlg.close(); toast("Deleted"); await reload(); }
@@ -319,9 +396,11 @@ function openSheet(entry = null) {
     }
   };
   dlg.oninput = (ev) => {
-    if (ev.target.name === "name" && !catTouched) {
+    if (ev.target.name !== "name") return;
+    $(".sugg", dlg).innerHTML = suggestions(ev.target.value);
+    if (!catTouched) {
       const c = lastCat(ev.target.value);
-      if (c) { category = c; dlg.querySelectorAll(".cat").forEach((b) => b.classList.toggle("on", b.dataset.cat === c)); }
+      if (c) { category = c; dlg.querySelectorAll(".cat").forEach((b) => b.classList.toggle("on", b.dataset.cat === c)); showCat(); }
     }
   };
   dlg.onchange = (ev) => {
@@ -365,8 +444,6 @@ function render() {
   document.querySelectorAll("[data-tab]").forEach((a) => a.classList.toggle("active", a.dataset.tab === r));
   $("#month").hidden = r === "settings" || r === "stats";
   $("#month-label").textContent = monthName(state.month, { month: "short", year: "numeric" });
-  const strip = $(".chart-scroll");
-  if (strip) strip.scrollLeft = strip.scrollWidth;   // start at the latest month
 }
 
 async function reload() {
@@ -387,7 +464,14 @@ $("#view").addEventListener("click", async (ev) => {
   const rowBtn = ev.target.closest(".row");
   if (rowBtn) return openSheet(state.entries.find((e) => e.id === rowBtn.dataset.id));
   const chip = ev.target.closest(".chip");
-  if (chip) { state.list.kind = chip.dataset.kind; return render(); }
+  if (chip?.dataset.period) { state.period = chip.dataset.period; return render(); }
+  if (chip) {
+    state.list.kind = chip.dataset.kind;
+    // keep the category only if it belongs to the new kind
+    const ok = state.list.kind === "all" || categories(state.list.kind).includes(state.list.cat);
+    if (!ok) state.list.cat = "";
+    return render();
+  }
   const bar = ev.target.closest(".mbar");
   if (bar) { state.month = bar.dataset.month; location.hash = "home"; return; }
 });
@@ -398,9 +482,27 @@ $("#view").addEventListener("input", (ev) => {
   render();
   const q = $("#q"); q.focus(); q.setSelectionRange(pos, pos);
 });
-$("#view").addEventListener("change", (ev) => {
-  if (ev.target.id === "cat") { state.list.cat = ev.target.value; render(); }
+$("#view").addEventListener("change", async (ev) => {
+  if (ev.target.id === "cat") { state.list.cat = ev.target.value; return render(); }
+  const name = ev.target.dataset.setting;
+  if (!name) return;
+  const value = ev.target.type === "checkbox" ? ev.target.checked : ev.target.value;
+  state.settings[name] = value;
+  if (name === "nav") applyNav();
+  try { state.settings = await store.saveSettings({ [name]: value }); toast("Saved"); }
+  catch (err) { toast(err.message, true); }
 });
+
+// App switcher menu (top left)
+const appBtn = $(".app-btn"), appMenu = $(".app-menu");
+const closeApps = () => { appMenu.hidden = true; appBtn.setAttribute("aria-expanded", "false"); };
+appBtn.addEventListener("click", (ev) => {
+  ev.stopPropagation();
+  appMenu.hidden = !appMenu.hidden;
+  appBtn.setAttribute("aria-expanded", String(!appMenu.hidden));
+});
+document.addEventListener("click", (ev) => { if (!ev.target.closest(".switcher")) closeApps(); });
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeApps(); });
 $("#month").addEventListener("click", (ev) => {
   const step = Number(ev.target.dataset.step);
   if (step) { state.month = shiftMonth(state.month, step); render(); }
@@ -411,4 +513,5 @@ window.addEventListener("hashchange", () => { render(); scrollTo(0, 0); });
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 store.info().then((i) => { state.info = i; if (route() === "settings") render(); }).catch(() => {});
+loadSettings();
 reload();
