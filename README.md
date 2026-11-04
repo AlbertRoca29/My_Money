@@ -1,8 +1,10 @@
 # My Money
 
-A personal-finance side project, still a work in progress. A portfolio tracker website: net worth from
-periodic JSON snapshots, money-weighted returns, look-through exposure vs a benchmark ETF, and a backtest
-of today's fund mix.
+A personal-finance side project, still a work in progress. Two apps for now, to be merged into one later:
+
+- **Portfolio tracker** (this folder): net worth from periodic JSON snapshots, money-weighted returns,
+  look-through exposure vs a benchmark ETF, and a backtest of today's fund mix.
+- **[Gastos](gastos/)**: a phone-first app to log expenses and income.
 
 No personal data lives in this repo. Snapshots (`portfolios/`), savings (`cashflows.csv`) and
 `config_local.py` (holdings, benchmark, Google Sheet link) are all git-ignored and stay on your machine.
