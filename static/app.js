@@ -442,8 +442,8 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeApps(
 
 // ---------- Settings (settings.py; Gastos shows its own group in its Settings tab) ----------
 function applyNav(nav) {
-  document.documentElement.dataset.nav = nav || "mixed";
-  try { localStorage.setItem("mymoney.nav", nav || "mixed"); } catch {}
+  document.documentElement.dataset.nav = nav || "top";
+  try { localStorage.setItem("mymoney.nav", nav || "top"); } catch {}
 }
 
 function settingRow(f, v) {

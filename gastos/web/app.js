@@ -284,7 +284,7 @@ function prefField(f) {
 }
 
 function applyNav() {
-  const nav = state.settings.nav || "mixed";
+  const nav = state.settings.nav || "top";
   document.documentElement.dataset.nav = nav;
   try { localStorage.setItem("mymoney.nav", nav); } catch {}
 }

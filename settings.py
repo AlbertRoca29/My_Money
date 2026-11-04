@@ -17,7 +17,7 @@ KEY = "settings.json"
 # Each field: name, label, type ("number" | "toggle" | "select" | "date"), default, plus group (the heading it
 # sits under in the settings sheet) and, for some, help / min / max / step / options.
 FIELDS = [
-    dict(name="nav", group="Look", label="Tabs on the phone", type="select", default="mixed",
+    dict(name="nav", group="Look", label="Tabs on the phone", type="select", default="top",
          help="Mixed: Gastos at the bottom, Portfolio at the top",
          options=[("mixed", "Mixed"), ("bottom", "Bottom on both"), ("top", "Top on both")]),
     dict(name="hide_others", group="Gastos", label="Hide what someone else paid", type="toggle", default=False,
