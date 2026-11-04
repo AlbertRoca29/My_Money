@@ -1,7 +1,7 @@
 """Look-through exposure of the portfolio's equity (countries, regions, currencies, sectors, companies,
 valuation, costs, overlap) compared with a benchmark ETF.
 
-Data sources (fetched live, cached per day in ~/.cache/my_money_lookthrough):
+Data sources (fetched live, cached per day by storage.py, under cache/lookthrough/):
   - iShares: "Detailed Holdings and Analytics" workbook (holdings, GICS sectors, countries, TER, P/E, P/B)
   - Vanguard: public GraphQL feed (per-holding GICS sector and country, TER, P/E, P/B), monthly
   - Avantis: product page (full holdings with ISIN, sector weights, P/E, P/B)
@@ -13,11 +13,12 @@ import json
 import re
 import urllib.request
 from datetime import datetime
-from pathlib import Path
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
+
+import storage
 import pandas as pd
 from matplotlib.colors import LinearSegmentedColormap, to_rgb
 
@@ -159,7 +160,7 @@ def _num(s):
 # ---------------------------------------------------------------------------
 # Fetching (cached per calendar day)
 # ---------------------------------------------------------------------------
-CACHE_DIR = Path.home() / ".cache" / "my_money_lookthrough"  # outside the data folder: never synced
+CACHE_DIR = "lookthrough"  # storage.py folder under cache/
 _UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/128 Safari/537.36"}
 ISHARES_URL = ("https://www.blackrock.com/varnish-api/uk-retail01-product-data/product-data/api/v1/"
                "get-fund-document?appType=PRODUCT_PAGE&appSubType=ISHARES&targetSite=ishares-uk"
@@ -190,13 +191,7 @@ def _http(url, data=None, headers=None):
 
 
 def _cached(cache_dir, name, fetch):
-    path = Path(cache_dir) / f"{datetime.now():%Y%m%d}_{name}"
-    if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        for old in path.parent.glob(f"*_{name}"):
-            old.unlink()
-        path.write_bytes(fetch())
-    return path.read_bytes()
+    return storage.cached_download(cache_dir, name, fetch)
 
 
 def _vanguard(query, variables):
@@ -712,16 +707,16 @@ def insights(r):
 # ---------------------------------------------------------------------------
 # Snapshots
 # ---------------------------------------------------------------------------
-def save_snapshot(result, folder):
-    folder = Path(folder)
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"{result['date']}.json"
-    path.write_text(json.dumps(result, indent=1, ensure_ascii=False))
-    return path
+def save_snapshot(result):
+    """Keep one look-through result per day, as lookthrough/<date>.json (see storage.py)."""
+    key = f"lookthrough/{result['date']}.json"
+    storage.write(key, json.dumps(result, indent=1, ensure_ascii=False).encode(), "application/json")
+    return key
 
 
-def load_snapshots(folder):
-    return {p.stem: json.loads(p.read_text()) for p in sorted(Path(folder).glob("2*.json"))}
+def load_snapshots():
+    return {k.split("/")[-1].removesuffix(".json"): json.loads(storage.read(k))
+            for k in storage.keys("lookthrough/") if k.endswith(".json")}
 
 
 # ---------------------------------------------------------------------------

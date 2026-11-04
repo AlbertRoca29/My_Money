@@ -13,3 +13,8 @@ google_credentials.json
 lookthrough/
 gastos/gastos.db
 gastos/receipts/
+
+# Cloud deploy
+/files/
+/backup/
+deploy.env

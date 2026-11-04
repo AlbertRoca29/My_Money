@@ -1,70 +1,41 @@
-"""Storage for Gastos: one SQLite table of entries (expenses and income), plus the Google Sheet import.
+"""Storage for Gastos: the Movements tab of your Google Sheet, one row per expense or income.
 
-An entry:
-    id             8 hex characters, the same kind of ID as the sheet rows, so imported rows keep theirs
-    kind           "expense" or "income"
-    name           what it was ("Supermarket", "Salary"…)
-    category       "🛒 Groceries" for expenses, "💼 Job" for income…
-    date           YYYY-MM-DD
-    amount         euros, always positive. For income: the amount that reached the account
-    gross          income only, optional: the amount before taxes
-    paid_by_other  1 when someone else (job, family) paid for it: kept in the list, left out of every total
-    receipt        file name in receipts/, or an old path from the sheet ("folder/…", a file left in Google Drive)
-    note           free text
+    ID | Date | Kind | Name | Category | Amount | Gross | Paid by others | Note | Receipt
 
-The browser never talks to this file directly — only through routes.py's /api routes — so the
-database can later be swapped for a hosted one without touching the front-end's screens.
+    ID             8 hex characters, made by the app
+    Date           a date (the app writes 2026-11-04)
+    Kind           Expense or Income
+    Name           what it was ("Supermarket", "Salary"…)
+    Category       "🛒 Groceries" for expenses, "💼 Job" for income…
+    Amount         euros, always positive. For income: the amount that reached the account
+    Gross          income only, optional: the amount before taxes
+    Paid by others TRUE when someone else (job, family) paid for it: listed, but left out of every total
+    Note           free text
+    Receipt        file name in the bucket's receipts/ (see storage.py), or an old AppSheet path
+
+You can edit, sort or fix rows in the sheet itself; keep the header row as it is. A row the app can't read
+(say, text in Amount) is skipped and named in the log, never deleted.
+
+The browser never talks to this file directly, only through routes.py's /api routes.
 """
 import csv
 import io
-import os
-import re
+import logging
 import secrets
-import sqlite3
-import urllib.request
-from datetime import date, datetime
-from pathlib import Path
+from datetime import date
 
-HERE = Path(__file__).parent
-DB_PATH = HERE / "gastos.db"
-RECEIPTS = HERE / "receipts"
+import config
+import gsheet
 
-# The Google Sheet to import from: set GASTOS_SHEET_URL in the environment, in
-# gastos/config_local.py or in the main config_local.py (both git-ignored).
-try:
-    from .config_local import GASTOS_SHEET_URL
-except ImportError:
-    try:
-        from config_local import GASTOS_SHEET_URL
-    except ImportError:
-        GASTOS_SHEET_URL = os.environ.get("GASTOS_SHEET_URL", "")
-TAB_URL = "https://docs.google.com/spreadsheets/d/{id}/gviz/tq?tqx=out:csv&sheet={tab}"
-
+TAB = config.MOVEMENTS_TAB
+HEADER = ["ID", "Date", "Kind", "Name", "Category", "Amount", "Gross", "Paid by others", "Note", "Receipt"]
 FIELDS = ["id", "kind", "name", "category", "date", "amount", "gross", "paid_by_other", "receipt", "note"]
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS entries (
-    id            TEXT PRIMARY KEY,
-    kind          TEXT NOT NULL CHECK (kind IN ('expense', 'income')),
-    name          TEXT NOT NULL,
-    category      TEXT NOT NULL,
-    date          TEXT NOT NULL,
-    amount        REAL NOT NULL,
-    gross         REAL,
-    paid_by_other INTEGER NOT NULL DEFAULT 0,
-    receipt       TEXT,
-    note          TEXT,
-    updated_at    TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS entries_date ON entries (date);
-"""
+log = logging.getLogger(__name__)
 
 
-def connect():
-    con = sqlite3.connect(DB_PATH)
-    con.row_factory = sqlite3.Row
-    con.executescript(SCHEMA)
-    return con
+def setup():
+    """Create the Movements tab if the sheet doesn't have it yet."""
+    return gsheet.ensure_tab(TAB, HEADER, date_cols=[1])
 
 
 def new_id():
@@ -95,94 +66,102 @@ def clean(body, entry_id=None):
         "date": day.isoformat(),
         "amount": round(amount, 2),
         "gross": round(float(gross), 2) if gross not in (None, "") and kind == "income" else None,
-        "paid_by_other": int(bool(body.get("paid_by_other"))) if kind == "expense" else 0,
+        "paid_by_other": bool(body.get("paid_by_other")) and kind == "expense",
         "receipt": body.get("receipt") or None,
         "note": (body.get("note") or "").strip() or None,
     }
 
 
+# ---------------------------------------------------------------------------
+# Rows <-> entries
+# ---------------------------------------------------------------------------
+def _number(v):
+    return None if v in (None, "") else float(str(v).replace(",", ".")) if isinstance(v, str) else float(v)
+
+
+def _entry(row):
+    row = list(row) + [""] * (len(HEADER) - len(row))
+    eid, day, kind, name, category, amount, gross, other, note, receipt = row[:len(HEADER)]
+    kind = str(kind).strip().lower()
+    if kind not in ("expense", "income"):
+        raise ValueError(f"Kind is {kind!r}, not Expense or Income")
+    if _number(amount) is None:
+        raise ValueError("no Amount")
+    return {
+        "id": str(eid).strip(),
+        "kind": kind,
+        "name": str(name).strip(),
+        "category": str(category).strip(),
+        "date": gsheet.to_date(day).isoformat(),
+        "amount": abs(_number(amount)),
+        "gross": _number(gross) if kind == "income" else None,
+        "paid_by_other": other is True or str(other).strip().upper() == "TRUE",
+        "receipt": str(receipt).strip() or None,
+        "note": str(note).strip() or None,
+    }
+
+
+def _row(e):
+    return [e["id"], e["date"], e["kind"].capitalize(), e["name"], e["category"], e["amount"],
+            "" if e["gross"] is None else e["gross"], True if e["paid_by_other"] else "", e["note"] or "", e["receipt"] or ""]
+
+
 def all_entries():
-    with connect() as con:
-        rows = con.execute(f"SELECT {', '.join(FIELDS)} FROM entries ORDER BY date DESC, updated_at DESC")
-        return [dict(r) | {"paid_by_other": bool(r["paid_by_other"])} for r in rows]
+    """Every readable row, newest first (rows added later come first within a day)."""
+    rows = gsheet.rows(TAB)
+    if not rows:
+        return []
+    gsheet.check_header(TAB, HEADER, rows[0])
+    entries = []
+    for n, row in enumerate(rows[1:], start=2):
+        if gsheet.blank(row):
+            continue
+        try:
+            e = _entry(row)
+        except (ValueError, TypeError) as exc:
+            log.warning("%s row %d skipped: %s", TAB, n, exc)
+            continue
+        entries.append((e["date"], n, e))
+    return [e for *_, e in sorted(entries, key=lambda t: (t[0], t[1]), reverse=True)]
+
+
+def _row_number(entry_id):
+    """1-based row of this ID in the sheet as it is right now (rows may have been sorted by hand)."""
+    ids = [r[0] if r else "" for r in gsheet.read(TAB, "A:A")]
+    return ids.index(entry_id) + 1 if entry_id in ids else None
 
 
 def save(entry):
-    """Insert or replace one cleaned entry."""
-    entry = entry | {"updated_at": datetime.now().isoformat(timespec="seconds")}
-    cols = FIELDS + ["updated_at"]
-    with connect() as con:
-        con.execute(f"INSERT OR REPLACE INTO entries ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
-                    [entry[c] for c in cols])
+    """Add the entry, or replace the row with the same ID."""
+    with gsheet.lock:
+        n = _row_number(entry["id"])
+        if n:
+            gsheet.update(TAB, f"A{n}", [_row(entry)])
+        else:
+            gsheet.append(TAB, [_row(entry)])
     return entry
 
 
 def delete(entry_id):
-    with connect() as con:
-        return con.execute("DELETE FROM entries WHERE id = ?", (entry_id,)).rowcount
+    with gsheet.lock:
+        n = _row_number(entry_id)
+        if n:
+            gsheet.delete_row(TAB, n - 1)
+    return int(bool(n))
 
 
-# ---------------------------------------------------------------------------
-# Google Sheet import (its GASTOS and INGRESOS tabs)
-# ---------------------------------------------------------------------------
-def _num(text):
-    """'1.763,54' or '42,64' -> float; '' -> None."""
-    text = (text or "").strip().replace(".", "").replace(",", ".")
-    return float(text) if text else None
-
-
-def _day(text):
-    """'14/9/2023' or '12/09/23' (day first) -> '2023-09-14'."""
-    d, m, y = (int(p) for p in text.strip().split("/"))
-    return date(y + 2000 if y < 100 else y, m, d).isoformat()
-
-
-def _sheet_id():
-    m = re.search(r"/spreadsheets/d/([A-Za-z0-9_-]+)", GASTOS_SHEET_URL)
-    if not m:
-        raise ValueError("No sheet to import from: set GASTOS_SHEET_URL (see the top of db.py)")
-    return m.group(1)
-
-
-def _tab(tab):
-    req = urllib.request.Request(TAB_URL.format(id=_sheet_id(), tab=tab), headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return list(csv.DictReader(io.StringIO(resp.read().decode("utf-8"))))
-
-
-def rows_from_sheet():
-    """Every GASTOS and INGRESOS row as entries. The sheet must be shared as "anyone with the link"."""
-    entries = []
-    for r in _tab("GASTOS"):
-        if not r.get("ID") or not r.get("Amount"):
+def daily_net():
+    """[(date, net savings)] per day, oldest first: income minus expenses, what the portfolio's Returns page
+    calls "money put in". Income typed 📈 Investments is left out (it is a return, not new money), and so are
+    expenses paid by others."""
+    net = {}
+    for e in all_entries():
+        if e["kind"] == "income" and "Investments" in e["category"]:
             continue
-        entries.append({"id": r["ID"], "kind": "expense", "name": r["Name"], "category": r["Category"],
-                        "date": _day(r["Date"]), "amount": _num(r["Amount"]), "gross": None,
-                        "paid_by_other": int(r["Supply"].upper() == "TRUE"),
-                        "receipt": r.get("Ticket") or None, "note": None})
-    for r in _tab("INGRESOS"):
-        if not r.get("ID") or not r.get("Import (brut)"):
+        if e["kind"] == "expense" and e["paid_by_other"]:
             continue
-        # In the sheet, "Import (brut)" is what reached the account (it is what TOTAL adds up) and
-        # "Import (net)" holds the salary before taxes, so they map to amount and gross respectively.
-        received, before_tax = _num(r["Import (brut)"]), _num(r["Import (net)"])
-        entries.append({"id": r["ID"], "kind": "income", "name": r["Nom"], "category": r["Tipus"],
-                        "date": _day(r["Data"]), "amount": received,
-                        "gross": before_tax if before_tax and before_tax != received else None,
-                        "paid_by_other": 0, "receipt": None, "note": None})
-    return entries
-
-
-def import_sheet():
-    """Add or update every sheet row (matched by ID). Entries created in the app are never touched."""
-    entries = rows_from_sheet()
-    with connect() as con:
-        before = con.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
-    for e in entries:
-        save(e)
-    with connect() as con:
-        after = con.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
-    return {"rows": len(entries), "new": after - before}
+        net[e["date"]] = net.get(e["date"], 0) + (e["amount"] if e["kind"] == "income" else -e["amount"])
+    return [(date.fromisoformat(d), round(v, 2)) for d, v in sorted(net.items()) if round(v, 2)]
 
 
 def to_csv():
@@ -191,7 +170,3 @@ def to_csv():
     writer.writeheader()
     writer.writerows(all_entries())
     return out.getvalue()
-
-
-if __name__ == "__main__":
-    print(import_sheet())

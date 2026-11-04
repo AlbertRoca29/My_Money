@@ -9,19 +9,16 @@ from pathlib import Path
 HERE = Path(__file__).parent
 
 # ---------------------------------------------------------------------------
-# Data
+# Data: your Google Sheet (movements and snapshots) and a private bucket (receipts, downloads)
 # ---------------------------------------------------------------------------
-SNAPSHOT_DIR = HERE / "portfolios"              # one YYYYMMDD.json per snapshot
-LOOKTHROUGH_DIR = SNAPSHOT_DIR / "lookthrough"  # every look-through run is saved here
-CASHFLOWS_CSV = HERE / "cashflows.csv"          # net savings per day (built by mwr.py / sheets.py)
-
-# The Gastos Google Sheet that cashflows.csv is built from (see sheets.py for how to give access).
-GASTOS_SHEET_URL = os.environ.get("GASTOS_SHEET_URL", "")  # or set it in config_local.py
-GASTOS_TABS = {"total": "TOTAL", "ingresos": "INGRESOS"}   # tab names (or gid numbers) in that sheet
-GOOGLE_CREDENTIALS = HERE / "google_credentials.json"  # only for a private sheet (service account key)
-SHEET_AUTO_SYNC_HOURS = 12   # Returns page re-downloads the sheet when cashflows.csv is older; None = button only
+# The sheet's ID is the long part of its link: docs.google.com/spreadsheets/d/<ID>/edit. Share the sheet with
+# the service account (Editor). deploy.sh sets these on Cloud Run; on your computer put them in config_local.py.
+SHEET_ID = os.environ.get("MY_MONEY_SHEET", "")
+PROJECT = os.environ.get("MY_MONEY_PROJECT", "")  # your Google Cloud project, e.g. "my-money-153626"
+BUCKET = os.environ.get("MY_MONEY_BUCKET", "")   # empty: receipts and downloads go in this folder instead
+MOVEMENTS_TAB, SNAPSHOTS_TAB = "Movements", "Snapshots"
+SHEET_CACHE_SECONDS = 30   # edits made directly in the sheet show up in the app after at most this long
 DATE_FORMAT = "%Y%m%d"
-SNAPSHOT_GLOB = "[0-9]" * 8 + ".json"           # anything not named YYYYMMDD.json is ignored
 
 # ---------------------------------------------------------------------------
 # Categories: name -> colour. The order is the order used in charts and in the snapshot editor.
@@ -89,7 +86,7 @@ BENCH_PROXY = None               # a longer-running stand-in for the benchmark, 
 # ---------------------------------------------------------------------------
 HOST, PORT = "127.0.0.1", 8050
 
-# Personal settings (holdings, benchmark, GASTOS_SHEET_URL) go in config_local.py, which is git-ignored.
+# Personal settings (holdings, benchmark, SHEET_ID…) go in config_local.py, which is git-ignored.
 try:
     from config_local import *  # noqa: F401,F403
 except ImportError:

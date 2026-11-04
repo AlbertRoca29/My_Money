@@ -1,6 +1,4 @@
-// The only file that knows where the data lives. Today: the Flask API in routes.py.
-// To move to GitHub Pages + a hosted database (Supabase, Firebase…), rewrite these functions with the
-// same names and return shapes; nothing else in web/ needs to change.
+// The only file that talks to the server (routes.py), which keeps the data in your Google Sheet.
 
 const CACHE_KEY = "gastos.entries";
 
@@ -10,6 +8,10 @@ async function call(method, url, body) {
     headers: body && !(body instanceof FormData) ? { "Content-Type": "application/json" } : {},
     body: body instanceof FormData ? body : body && JSON.stringify(body),
   });
+  if (res.status === 401) {                      // signed out (or the sign-in expired): sign in again
+    location.href = "/login";
+    throw new Error("Signing in…");
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `${res.status} ${res.statusText}`);
   return data;
@@ -71,6 +73,6 @@ export async function uploadReceipt(file) {
 // A URL to show a stored receipt, or null for old ones that stayed in Google Drive.
 export const receiptUrl = (name) => (name && !name.includes("/") ? `receipts/${name}` : null);
 
-export const importSheet = () => call("POST", "api/import-sheet");
+export const info = () => call("GET", "api/info");
 
 export const exportUrl = "api/export.csv";

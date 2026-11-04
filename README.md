@@ -4,12 +4,13 @@ A personal-finance side project, still a work in progress. One website with two 
 to go from one to the other:
 
 - **[Gastos](gastos/)** at `/` (the default, orange): a phone-first app to log expenses and income.
-- **Portfolio tracker** at `/portfolio` (blue): net worth from periodic JSON snapshots, money-weighted returns,
-  look-through exposure vs a benchmark ETF, and a backtest of today's fund mix.
+- **Portfolio tracker** at `/portfolio` (blue): net worth from periodic snapshots, money-weighted returns
+  (your savings come straight from Gastos), look-through exposure vs a benchmark ETF, and a backtest of
+  today's fund mix.
 
-No personal data lives in this repo. Snapshots (`portfolios/`), savings (`cashflows.csv`) and
-`config_local.py` (holdings, benchmark, Google Sheet link) are all git-ignored and stay on your machine.
-Without them the pages start empty and tell you what to add.
+Your data lives in **your own Google Sheet** (a Movements tab and a Snapshots tab) plus a private bucket for
+receipts, and the app runs on **Google Cloud Run** behind Sign in with Google: see **[DEPLOY.md](DEPLOY.md)**.
+No personal data lives in this repo: `config_local.py` (holdings, benchmark, sheet ID) is git-ignored.
 
 ## Run it
 
@@ -19,7 +20,8 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt   # first time
 ```
 
 Then open http://127.0.0.1:8050 (Gastos; the portfolio is at http://127.0.0.1:8050/portfolio). The server restarts
-by itself whenever you save a `.py` file. Add `MY_MONEY_HOST=0.0.0.0` in front to open it from your phone on the same Wi-Fi.
+by itself whenever you save a `.py` file. On your computer there's no sign-in, and it reads and writes the same
+sheet as the online app (DEPLOY.md, step 6, sets that up).
 
 ## Where things are
 
@@ -36,10 +38,15 @@ by itself whenever you save a `.py` file. Add `MY_MONEY_HOST=0.0.0.0` in front t
 | `web/blocks.py` | The building blocks a page is made of: `kpis`, `chart`, `table`, `items`, `notes`… | add a new block type |
 | `web/theme.py` | Colours, number formats (`eur`, `pct`) and the Plotly chart style | restyle every chart at once |
 | `app.py` | URL routes only (also registers Gastos' routes from `gastos/routes.py`) | add an API endpoint |
+| `gsheet.py` | Reads and writes your Google Sheet | — |
+| `storage.py` | Receipts, downloads and look-through history: the bucket online, `files/` on your computer | — |
+| `auth.py` | Sign in with Google, only for `ALLOWED_EMAILS` | — |
+| `deploy.sh`, `Dockerfile`, `DEPLOY.md` | Putting it on Google Cloud | change memory, region… |
+| `migrate.py` | One-time copy of the old local files into the sheet and bucket | — |
 | `templates/`, `static/` | The browser side. It has no finance logic: it draws whatever the Python pages return | change the look |
 
-`mwr.py`, `lookthrough.py` and `backtest.py` do the calculations and downloads, and can also be used on their
-own (`python mwr.py` prints the returns once there is data).
+`mwr.py`, `lookthrough.py` and `backtest.py` do the calculations and downloads; `web/data.py` feeds them
+from the sheet.
 
 ## Add a chart to a page
 
@@ -59,19 +66,11 @@ card shows it and the rest of the page still loads.
 ## Add a snapshot
 
 Click **+ Snapshot**. The editor starts from the latest snapshot (or any older one), and amounts can be
-sums like `100 + 50 + 25`. It saves `portfolios/YYYYMMDD.json`.
+sums like `100 + 50 + 25`. It saves one row per asset in the Snapshots tab (Date | Category | Asset | Amount),
+replacing that date's rows if there were any.
 
-## Update savings (Google Sheets)
+## Savings
 
-`cashflows.csv` is built from the TOTAL and INGRESOS tabs of the Gastos sheet. To connect it once:
-
-1. Put the sheet's link in `GASTOS_SHEET_URL` in `config_local.py`, and the tab names in `GASTOS_TABS`
-   (already set to TOTAL and INGRESOS). The tab IDs are looked up automatically.
-2. Give access in one of two ways (details at the top of `sheets.py`):
-   - **Link sharing:** Share › "Anyone with the link" › Viewer. Nothing else to do.
-   - **Private:** create a Google service account, save its JSON key as `google_credentials.json`
-     (git-ignored), and share the sheet with its e-mail as Viewer.
-
-After that, **Returns › Sync from Google Sheets** downloads it, and the Returns page re-syncs by itself
-when `cashflows.csv` is older than `SHEET_AUTO_SYNC_HOURS`. From the terminal: `python sheets.py`.
-Uploading the two CSV downloads by hand still works too.
+The Returns page needs to know how much new money went in each day. It takes it from Gastos: income minus
+expenses, leaving out income typed **📈 Investments** (that's a return, not new money) and expenses **paid by
+others**. Nothing to sync.

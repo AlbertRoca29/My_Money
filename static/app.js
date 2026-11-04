@@ -38,6 +38,13 @@ function fitPhone(fig) {
   return wide;
 }
 
+// fetch, except that a signed-out (or expired) session goes back to the sign-in page
+async function api(url, options) {
+  const r = await fetch(url, options);
+  if (r.status === 401) { location.href = "/login?next=/portfolio"; throw new Error("Signing in…"); }
+  return r;
+}
+
 // ---------- Routing: #/page?param=value ----------
 function route() {
   const [path, query] = location.hash.replace(/^#\/?/, "").split("?");
@@ -58,7 +65,7 @@ async function load() {
   showSkeleton();
   let res;
   try {
-    const r = await fetch(`/api/page/${page}?${params}`);
+    const r = await api(`/api/page/${page}?${params}`);
     res = await r.json();
   } catch (e) {
     res = { error: `Could not reach the server (${e.message}). Is app.py running?` };
@@ -231,7 +238,7 @@ const BLOCKS = {
       btn.disabled = true;
       btn.textContent = "Syncing…";
       try {
-        const res = await (await fetch(b.url, { method: "POST" })).json();
+        const res = await (await api(b.url, { method: "POST" })).json();
         toast(res.error || res.status, !!res.error);
         if (!res.error) load();
       } catch (e) {
@@ -262,7 +269,7 @@ const BLOCKS = {
     });
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const r = await fetch(b.action, { method: "POST", body: new FormData(form) });
+      const r = await api(b.action, { method: "POST", body: new FormData(form) });
       const res = await r.json();
       toast(res.error || res.status, !!res.error);
       if (!res.error) load();
@@ -293,7 +300,7 @@ const amount = (s) => {
 };
 
 async function openSheet(fromDate) {
-  const r = await fetch(`/api/snapshot${fromDate ? "?date=" + fromDate.replaceAll("-", "") : ""}`);
+  const r = await api(`/api/snapshot${fromDate ? "?date=" + fromDate.replaceAll("-", "") : ""}`);
   const res = await r.json();
   sheet.categories = res.categories;
   sheet.portfolio = res.portfolio;
@@ -381,7 +388,7 @@ $("#sheet-save").addEventListener("click", async () => {
   if (!date) { $("#sheet-msg").textContent = "Pick a date first."; return; }
   const existing = [...$("#sheet-from").options].some((o) => o.value === date);
   if (existing && !confirm(`A snapshot for ${date} already exists. Replace it?`)) return;
-  const r = await fetch("/api/snapshot", {
+  const r = await api("/api/snapshot", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ date, portfolio: readSheet() }),
   });

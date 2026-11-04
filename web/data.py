@@ -1,7 +1,13 @@
 """Loading the data every page uses, with a small cache.
 
-Each loader is decorated with @cached: its result is kept until a snapshot, cashflows.csv or the
-calendar day changes, so clicking around the site is instant but new data shows up right away.
+Snapshots live in the Snapshots tab of your Google Sheet, one row per asset:
+
+    Date | Category | Asset | Amount        (2026-10-31 | ETFs | My world ETF | 12345.67)
+
+and your savings come straight from Gastos (its Movements tab, see gastos/db.py daily_net).
+
+Each loader is decorated with @cached: its result is kept until the snapshots (or, with savings=True, the
+movements) or the calendar day change, so clicking around the site is instant but new data shows up.
 The heavy lifting (returns, look-through, backtest) is still done by mwr.py, lookthrough.py and
 backtest.py — this file only wires them to config.py.
 """
@@ -9,15 +15,15 @@ import functools
 import json
 import re
 from datetime import date, datetime
-from pathlib import Path
 
 import pandas as pd
 
 import backtest
 import config
+import gsheet
 import lookthrough
 import mwr
-import sheets
+from gastos import db as gastos_db
 
 lookthrough.CHINA_REFERENCE = config.CHINA_REFERENCE
 
@@ -25,18 +31,27 @@ lookthrough.CHINA_REFERENCE = config.CHINA_REFERENCE
 # ---------------------------------------------------------------------------
 # Cache
 # ---------------------------------------------------------------------------
-def data_version():
-    """Changes whenever a snapshot or cashflows.csv is added/edited, and once a day (for downloads)."""
-    files = list(config.SNAPSHOT_DIR.glob(config.SNAPSHOT_GLOB)) + [config.CASHFLOWS_CSV]
-    return (date.today(), len(files), max((f.stat().st_mtime for f in files if f.exists()), default=0))
+SNAPSHOTS = config.SNAPSHOTS_TAB
+SNAPSHOT_HEADER = ["Date", "Category", "Asset", "Amount"]
 
 
-def cached(fn):
+def _fingerprint(tab):
+    return hash(json.dumps(gsheet.rows(tab), default=str))
+
+
+def data_version(savings=False):
+    """Changes whenever the snapshots (and with savings=True, the movements) change, and once a day."""
+    return date.today(), _fingerprint(SNAPSHOTS), _fingerprint(config.MOVEMENTS_TAB) if savings else None
+
+
+def cached(fn=None, *, savings=False):
+    if fn is None:
+        return functools.partial(cached, savings=savings)
     store = {}
 
     @functools.wraps(fn)
     def wrapper(*args):
-        key = (data_version(), args)
+        key = (data_version(savings), args)
         if key not in store:
             if any(k[0] != key[0] for k in store):  # data changed: forget everything
                 store.clear()
@@ -58,11 +73,30 @@ def categories():
     return list(config.ASSET_TYPES)
 
 
+def setup():
+    """Create the Snapshots tab if the sheet doesn't have it yet."""
+    return gsheet.ensure_tab(SNAPSHOTS, SNAPSHOT_HEADER, date_cols=[0])
+
+
+def _category_order(c):
+    return list(config.ASSET_TYPES).index(c) if c in config.ASSET_TYPES else len(config.ASSET_TYPES)
+
+
 @cached
 def portfolios():
-    """{Timestamp: snapshot dict}, sorted by date."""
-    return {pd.to_datetime(p.stem, format=config.DATE_FORMAT): json.loads(p.read_text())
-            for p in sorted(config.SNAPSHOT_DIR.glob(config.SNAPSHOT_GLOB))}
+    """{Timestamp: {category: {asset: amount}}}, sorted by date."""
+    rows = gsheet.rows(SNAPSHOTS)
+    if not rows:
+        return {}
+    gsheet.check_header(SNAPSHOTS, SNAPSHOT_HEADER, rows[0])
+    out = {}
+    for row in rows[1:]:
+        row = list(row) + [""] * 4
+        if gsheet.blank(row) or not str(row[0]).strip() or row[3] in ("", None):
+            continue
+        day = pd.Timestamp(gsheet.to_date(row[0]))
+        out.setdefault(day, {}).setdefault(str(row[1]).strip(), {})[str(row[2]).strip()] = float(row[3])
+    return {d: dict(sorted(p.items(), key=lambda kv: _category_order(kv[0]))) for d, p in sorted(out.items())}
 
 
 @cached
@@ -122,27 +156,33 @@ def parse_amount(v):
 
 
 def save_snapshot(day, portfolio):
-    """Write portfolios/YYYYMMDD.json. Amounts are cleaned up and every category is kept (even empty)."""
-    clean = {}
-    for category in list(config.ASSET_TYPES) + [c for c in portfolio if c not in config.ASSET_TYPES]:
-        assets = portfolio.get(category) or {}
-        clean[category] = {str(name).strip(): round(parse_amount(v), 2)
-                           for name, v in assets.items() if str(name).strip() and v not in (None, "")}
-    stem = datetime.strptime(str(day), "%Y-%m-%d").strftime(config.DATE_FORMAT) if "-" in str(day) else str(day)
-    config.SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
-    path = config.SNAPSHOT_DIR / f"{stem}.json"
-    existed = path.exists()
-    path.write_text(json.dumps(clean))
-    return path, existed
+    """Put one snapshot in the Snapshots tab (replacing that date's rows). Returns (date, it replaced one)."""
+    day = datetime.strptime(str(day), "%Y-%m-%d" if "-" in str(day) else config.DATE_FORMAT).date()
+    new = [[day.isoformat(), category, str(name).strip(), round(parse_amount(v), 2)]
+           for category in list(config.ASSET_TYPES) + [c for c in portfolio if c not in config.ASSET_TYPES]
+           for name, v in (portfolio.get(category) or {}).items() if str(name).strip() and v not in (None, "")]
+    with gsheet.lock:
+        rows = gsheet.read(SNAPSHOTS)
+        if rows:
+            gsheet.check_header(SNAPSHOTS, SNAPSHOT_HEADER, rows[0])
+        old = [r for r in rows[1:] if r and str(r[0]).strip()]
+        keep = [[gsheet.to_date(r[0]).isoformat(), *(list(r[1:]) + [""] * 3)[:3]] for r in old]
+        existed = any(r[0] == day.isoformat() for r in keep)
+        table = sorted([r for r in keep if r[0] != day.isoformat()] + new,
+                       key=lambda r: (r[0], _category_order(r[1])))
+        # One write over the whole table; blank rows wipe what is left of a longer old one
+        gsheet.update(SNAPSHOTS, "A2", table + [[""] * 4] * max(0, len(rows) - 1 - len(table)))
+    return day, existed
 
 
 # ---------------------------------------------------------------------------
 # Returns (mwr.py)
 # ---------------------------------------------------------------------------
-@cached
+@cached(savings=True)
 def snaps_and_flows():
-    """(snaps, flows): [(date, total value)] per snapshot and [(date, net savings)] per day."""
-    return mwr.load_snapshots(config.SNAPSHOT_DIR), mwr.load_cashflows(config.CASHFLOWS_CSV)
+    """(snaps, flows): [(date, total value)] per snapshot and [(date, net savings)] per day (from Gastos)."""
+    snaps = [(d.date(), sum(category_total(v) for v in p.values())) for d, p in portfolios().items()]
+    return snaps, gastos_db.daily_net()
 
 
 @cached
@@ -151,7 +191,7 @@ def benchmark_prices():
     return backtest.justetf_series(config.BENCHMARK_ISIN)
 
 
-@cached
+@cached(savings=True)
 def alternatives():
     """{name: daily value series} of 'the same savings put into the benchmark' for each CASH_BUFFERS entry."""
     snaps, flows = snaps_and_flows()
@@ -160,54 +200,17 @@ def alternatives():
             for name, (fixed, share) in config.CASH_BUFFERS.items()}
 
 
-def save_cashflows(total_csv, ingresos_csv):
-    """Rebuild cashflows.csv from the TOTAL and INGRESOS tabs of the Gastos sheet."""
-    mwr.build_cashflows(total_csv, ingresos_csv, out=config.CASHFLOWS_CSV)
-
-
-def sheet_configured():
-    return bool(config.GASTOS_SHEET_URL)
-
-
-def cashflows_age_hours():
-    if not config.CASHFLOWS_CSV.exists():
-        return float("inf")
-    return (datetime.now().timestamp() - config.CASHFLOWS_CSV.stat().st_mtime) / 3600
-
-
-def sync_sheet():
-    """Download the Gastos sheet now and rebuild cashflows.csv (see sheets.py). Returns a status line."""
-    return sheets.sync()
-
-
-last_auto_sync_error = None
-
-
-def auto_sync_sheet():
-    """Called when the Returns page opens: re-download the sheet if cashflows.csv is older than
-    SHEET_AUTO_SYNC_HOURS. A failure is remembered (shown on the page) instead of breaking it."""
-    global last_auto_sync_error
-    hours = config.SHEET_AUTO_SYNC_HOURS
-    if not sheet_configured() or hours is None or cashflows_age_hours() < hours:
-        return
-    try:
-        sheets.sync()
-        last_auto_sync_error = None
-    except Exception as exc:
-        last_auto_sync_error = f"{type(exc).__name__}: {exc}"
-
-
 # ---------------------------------------------------------------------------
 # Look-through (lookthrough.py)
 # ---------------------------------------------------------------------------
 @cached
 def lookthrough_result():
-    """Look-through of the latest snapshot vs the benchmark fund; also saved to LOOKTHROUGH_DIR."""
+    """Look-through of the latest snapshot vs the benchmark fund; also kept as lookthrough/<date>.json."""
     day, latest = snapshot()
     r = lookthrough.build_lookthrough(latest, config.FUND_SOURCES, config.DIRECT_STOCKS,
                                       config.FUND_SOURCES[config.LOOKTHROUGH_BENCHMARK],
                                       date=day.strftime(config.DATE_FORMAT))
-    lookthrough.save_snapshot(r, config.LOOKTHROUGH_DIR)
+    lookthrough.save_snapshot(r)
     return r
 
 

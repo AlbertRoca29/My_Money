@@ -6,23 +6,19 @@ with a switcher at the top of both.
 
 ## Run it
 
-```bash
-.venv/bin/python app.py        # from My_Money/, then open http://127.0.0.1:8050
-```
+Online: see [../DEPLOY.md](../DEPLOY.md), then open the link on your phone and **Add to Home Screen**.
+On your computer: `.venv/bin/python app.py` from My_Money/, then http://127.0.0.1:8050.
 
-On your phone (same Wi-Fi): start it with `MY_MONEY_HOST=0.0.0.0`, open `http://<this computer's IP>:8050`,
-then **Add to Home Screen**.
-
-First time: put the sheet's link in `GASTOS_SHEET_URL` (environment, `config_local.py` or `gastos/config_local.py`), then **Settings › Import from Google Sheet** (or `.venv/bin/python -m gastos.db`). It reads the GASTOS and
-INGRESOS tabs; running it again updates rows by ID and never touches entries made in the app.
+Every movement is one row in the **Movements** tab of your Google Sheet (columns in `db.py`). You can edit or
+sort rows there; the app sees it within half a minute.
 
 ## Where things are
 
 | File | What it does |
 |---|---|
-| `db.py` | The SQLite table (`gastos.db`, git-ignored) and the Google Sheet import |
+| `db.py` | The Movements tab: reading, adding, editing and deleting rows, and the daily savings for Portfolio |
 | `routes.py` | Serves `web/` and the `/api` routes (a blueprint that `../app.py` registers at `/`) |
-| `web/store.js` | **The only file that talks to the server.** Swap it to move to GitHub Pages + a hosted DB |
+| `web/store.js` | The only file that talks to the server (and sends you to sign in when needed) |
 | `web/app.js` | The screens: Home, Movements, Stats, Settings and the add/edit sheet |
 | `web/style.css` | Same look as My Money, with dark mode |
 | `web/sw.js`, `manifest.webmanifest` | Installable app, works offline with the last data seen |
@@ -34,9 +30,3 @@ INGRESOS tabs; running it again updates rows by ID and never touches entries mad
   **gross** is the before-tax figure (the sheet's "Import (net)").
 - Amounts accept sums: `12,5 + 3`.
 - Typing a name you've used before picks its category automatically.
-
-## Moving to GitHub Pages later
-
-`web/` is plain static files, so it can be published as-is. Rewrite `web/store.js` against the hosted
-database (e.g. Supabase: one `entries` table with the columns in `db.py`, plus a storage bucket for receipts)
-and add login, since the data would no longer be on your own machine.

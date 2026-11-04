@@ -4,16 +4,20 @@ It is the default half of My Money: ../app.py registers this blueprint, so Gasto
 portfolio tracker at "/portfolio", on the same server.
 
 How it fits together
-    db.py      the SQLite table and the Google Sheet import
-    web/       the whole app: plain HTML/JS/CSS, no build step. Only web/store.js talks to this server,
-               so moving to GitHub Pages + a hosted database means rewriting that one file.
+    db.py      the Movements tab of your Google Sheet
+    web/       the whole app: plain HTML/JS/CSS, no build step. Only web/store.js talks to this server.
 
 This file only serves web/ and maps the /api routes to db.py.
 """
+import mimetypes
+import re
 import secrets
 from pathlib import Path
 
-from flask import Blueprint, Response, current_app, jsonify, request, send_from_directory
+from flask import Blueprint, Response, abort, jsonify, request, send_from_directory, session
+
+import gsheet
+import storage
 
 from . import db
 
@@ -32,6 +36,13 @@ def index():
 def static_file(name):
     """web/ files (style.css, app.js…). More specific routes, like /static/… and /portfolio, win over this one."""
     return send_from_directory(WEB, name)
+
+
+@bp.errorhandler(PermissionError)
+@bp.errorhandler(RuntimeError)
+def sheet_problem(exc):
+    """No sheet set yet, or not shared with the app: say so on screen instead of a bare error page."""
+    return jsonify({"error": str(exc)}), 503
 
 
 @bp.get("/api/entries")
@@ -60,24 +71,24 @@ def upload_receipt():
     ext = Path(file.filename).suffix.lower() if file else ""
     if ext not in RECEIPT_TYPES:
         return jsonify({"error": "Send an image or a PDF"}), 400
-    db.RECEIPTS.mkdir(exist_ok=True)
     name = f"{secrets.token_hex(6)}{ext}"
-    file.save(db.RECEIPTS / name)
+    storage.write(f"receipts/{name}", file.read(), file.mimetype)
     return jsonify({"receipt": name})
 
 
 @bp.get("/receipts/<name>")
 def receipt(name):
-    return send_from_directory(db.RECEIPTS, name)
+    body = storage.read(f"receipts/{name}") if re.fullmatch(r"[0-9a-f]+\.[a-z]+", name) else None
+    if body is None:
+        abort(404)
+    return Response(body, mimetype=mimetypes.guess_type(name)[0] or "application/octet-stream",
+                    headers={"Cache-Control": "private, max-age=86400"})
 
 
-@bp.post("/api/import-sheet")
-def import_sheet():
-    try:
-        return jsonify(db.import_sheet())
-    except Exception as exc:  # no internet, sheet no longer shared…
-        current_app.logger.exception("sheet import failed")
-        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 400
+@bp.get("/api/info")
+def info():
+    """For the Settings screen: where the data is and who is signed in."""
+    return jsonify({"sheet": gsheet.url(), "email": session.get("email")})
 
 
 @bp.get("/api/export.csv")

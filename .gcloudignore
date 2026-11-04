@@ -1,0 +1,20 @@
+# What deploy.sh uploads to Google: the code, plus config_local.py (your holdings, which stay inside your own
+# Google Cloud project). Never your data or anything else that lives only on this computer.
+.git/
+.gitignore
+.gcloudignore
+.venv/
+.claude/
+__pycache__/
+*.pyc
+*.ipynb
+.ipynb_checkpoints/
+portfolios/
+cashflows.csv
+files/
+backup/
+gastos/gastos.db
+gastos/receipts/
+gastos/config_local.py
+google_credentials.json
+deploy.env

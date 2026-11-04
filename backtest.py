@@ -9,15 +9,14 @@ import json
 import time
 import urllib.request
 from datetime import datetime
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+import storage
 from lookthrough import BENCH_C, GRID, INK_2, MUTED, PORTFOLIO_C, UNDER_C, _legend, _style, _suptitle
 
-CACHE_DIR = Path.home() / ".cache" / "my_money_prices"
 _UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/128 Safari/537.36",
        "Accept": "application/json"}
 JUSTETF_URL = ("https://www.justetf.com/api/etfs/{id}/performance-chart?locale=en&currency=EUR"
@@ -27,15 +26,13 @@ NASDAQ_URL = ("https://api.nasdaq.com/api/quote/{id}/historical?assetclass=stock
 FX_URL = "https://api.frankfurter.dev/v1/2010-01-01..{today}?base={base}&symbols=EUR"
 
 
-def _cached(name, fetch, cache_dir=CACHE_DIR, max_age_h=24):
-    path = Path(cache_dir) / f"{datetime.now():%Y%m%d}_{name}"
-    if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        for old in path.parent.glob(f"*_{name}"):
-            old.unlink()
-        path.write_bytes(fetch())
+def _cached(name, fetch):
+    """Downloaded once a day and kept under cache/prices/ (see storage.py)."""
+    def gently():
+        body = fetch()
         time.sleep(0.4)  # be gentle with the free endpoints
-    return json.loads(path.read_bytes())
+        return body
+    return json.loads(storage.cached_download("prices", name, gently))
 
 
 def _get(url):

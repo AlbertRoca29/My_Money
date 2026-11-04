@@ -232,15 +232,17 @@ const views = {
       <section class="card"><h2>Data</h2>
         <p>${state.entries.length} movements${first ? `, from ${esc(first)} to ${esc(last)}` : ""}.</p>
         <div class="actions">
-          <button class="pill dark" id="import">Import from Google Sheet</button>
+          ${state.info?.sheet ? `<a class="pill dark" href="${esc(state.info.sheet)}" target="_blank" rel="noopener">Open the Google Sheet</a>` : ""}
           <a class="pill" href="${store.exportUrl}" download>Export CSV</a>
         </div>
-        <p class="muted small">The import reads the GASTOS and INGRESOS tabs of the Google Sheet. Rows already here are
-          updated by ID; movements you added in this app are never touched, so it is safe to run again.</p>
+        <p class="muted small">Everything lives in the Movements tab of that sheet. You can fix or sort rows there;
+          keep the first row (the column names) as it is. Changes show up here within half a minute.</p>
       </section>
-      <section class="card"><h2>On your phone</h2>
-        <p class="small">Start the server with <code>MY_MONEY_HOST=0.0.0.0</code>, open this page from your phone on the same
-          Wi-Fi, then use <b>Add to Home Screen</b>. It opens like an app and shows the last data it saw when offline.</p>
+      <section class="card"><h2>Account</h2>
+        <p>${state.info?.email ? `Signed in as <b>${esc(state.info.email)}</b>.` : "Running on your computer, no sign-in."}</p>
+        ${state.info?.email ? `<div class="actions"><a class="pill" href="/logout">Sign out</a></div>` : ""}
+        <p class="muted small">On your phone, open this page and use <b>Add to Home Screen</b>: it opens like an app
+          and shows the last data it saw when offline.</p>
       </section>`;
   },
 };
@@ -388,11 +390,6 @@ $("#view").addEventListener("click", async (ev) => {
   if (chip) { state.list.kind = chip.dataset.kind; return render(); }
   const bar = ev.target.closest(".mbar");
   if (bar) { state.month = bar.dataset.month; location.hash = "home"; return; }
-  if (ev.target.id === "import") {
-    ev.target.disabled = true; ev.target.textContent = "Importing…";
-    try { const r = await store.importSheet(); toast(`${r.rows} rows read, ${r.new} new`); await reload(); }
-    catch (err) { toast(err.message, true); render(); }
-  }
 });
 $("#view").addEventListener("input", (ev) => {
   if (ev.target.id !== "q") return;
@@ -413,4 +410,5 @@ $("#add-top").addEventListener("click", () => openSheet());
 window.addEventListener("hashchange", () => { render(); scrollTo(0, 0); });
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+store.info().then((i) => { state.info = i; if (route() === "settings") render(); }).catch(() => {});
 reload();

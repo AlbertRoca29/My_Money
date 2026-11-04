@@ -18,12 +18,13 @@ How it fits together
 This file only maps URLs to those functions. Every route returns JSON except "/portfolio".
 """
 import os
-import tempfile
 from pathlib import Path
 
 import plotly
 from flask import Flask, abort, jsonify, render_template, request, send_file
+from werkzeug.middleware.proxy_fix import ProxyFix
 
+import auth
 import config
 from gastos.routes import bp as gastos
 from web import data
@@ -31,6 +32,9 @@ from web.pages import PAGES
 
 app = Flask(__name__)
 app.json.sort_keys = False  # keep categories and assets in the order they were written
+if auth.ON_CLOUD_RUN:  # behind Google's proxy: trust its https:// and host, for the sign-in redirect URL
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+auth.init(app)                  # Sign in with Google (auth.py); off on your own computer
 app.register_blueprint(gastos)  # "/" and its /api/entries, /api/receipts… routes
 
 
@@ -72,41 +76,30 @@ def get_snapshot():
 
 @app.post("/api/snapshot")
 def post_snapshot():
-    """Save {"date": "YYYY-MM-DD", "portfolio": {category: {asset: amount}}} as portfolios/YYYYMMDD.json."""
+    """Save {"date": "YYYY-MM-DD", "portfolio": {category: {asset: amount}}} in the Snapshots tab."""
     body = request.get_json(force=True)
     try:
-        path, existed = data.save_snapshot(body["date"], body["portfolio"])
+        day, existed = data.save_snapshot(body["date"], body["portfolio"])
     except (KeyError, ValueError, TypeError) as exc:
         return jsonify({"error": f"Could not save: {exc}"}), 400
-    return jsonify({"saved": path.name, "replaced": existed})
+    return jsonify({"saved": f"{day:%d %b %Y}", "replaced": existed})
 
 
-@app.post("/api/cashflows")
-def post_cashflows():
-    """Rebuild cashflows.csv from the uploaded TOTAL and INGRESOS CSV downloads."""
-    if not {"total", "ingresos"} <= set(request.files):
-        return jsonify({"error": "Both TOTAL.csv and INGRESOS.csv are needed."}), 400
-    with tempfile.TemporaryDirectory() as tmp:
-        paths = {}
-        for key in ("total", "ingresos"):
-            paths[key] = Path(tmp) / f"{key}.csv"
-            request.files[key].save(paths[key])
+@app.post("/tasks/refresh")
+@auth.task
+def refresh():
+    """Run every night by Cloud Scheduler: download today's prices and fund holdings and work out the
+    heavy pages, so they open at once during the day. Each part can fail without stopping the others."""
+    done = {}
+    for name, job in [("benchmark", data.benchmark_prices), ("look-through", data.lookthrough_result),
+                      ("backtest", lambda: data.backtest_result(config.REBALANCE, False))]:
         try:
-            data.save_cashflows(paths["total"], paths["ingresos"])
-        except (KeyError, ValueError) as exc:
-            return jsonify({"error": f"Unexpected CSV format: {exc}"}), 400
-    _, flows = data.snaps_and_flows()
-    return jsonify({"status": f"cashflows.csv: {len(flows)} days, last {flows[-1][0]:%d %b %Y}"})
-
-
-@app.post("/api/sheet-sync")
-def sheet_sync():
-    """Download the Gastos Google Sheet and rebuild cashflows.csv (sheets.py)."""
-    try:
-        return jsonify({"status": data.sync_sheet()})
-    except Exception as exc:  # no access, wrong link, no internet...
-        app.logger.exception("sheet sync failed")
-        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 400
+            job()
+            done[name] = "ok"
+        except Exception as exc:
+            app.logger.exception("refresh: %s failed", name)
+            done[name] = f"{type(exc).__name__}: {exc}"
+    return jsonify(done)
 
 
 if __name__ == "__main__":

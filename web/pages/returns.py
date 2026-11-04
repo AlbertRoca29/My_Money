@@ -1,6 +1,6 @@
 """Returns: how much the money you put in has earned (MWR / TWR) and how the benchmark ETF would have done.
 
-Net savings come from cashflows.csv (see mwr.py for how it is built from the Gastos sheet).
+Net savings come from Gastos: income minus expenses per day (see gastos/db.py daily_net).
 """
 import numpy as np
 import pandas as pd
@@ -10,19 +10,18 @@ from plotly.subplots import make_subplots
 import config
 import mwr
 from web import data
-from web.blocks import action, chart, empty_page, hero, kpi, kpis, notes, raw, section, table, text
+from web.blocks import chart, empty_page, hero, kpi, kpis, notes, section, table
 from web.theme import BASELINE, BLUE, CORAL, GREEN, MUTED, RED, eur, frac, style, tone
 
 TITLE = "Returns"
 
 
 def build(p):
-    data.auto_sync_sheet()  # re-download the Gastos sheet if cashflows.csv is old (config.SHEET_AUTO_SYNC_HOURS)
     if len(data.portfolios()) < 2:
         return empty_page("Return on the money you put in", "Returns need at least two snapshots (+ Snapshot).")
-    if not config.CASHFLOWS_CSV.exists():
-        return empty_page("Return on the money you put in", "No savings yet: add them below.", [update_savings(p)])
     snaps, flows = data.snaps_and_flows()
+    if not flows:
+        return empty_page("Return on the money you put in", "No savings yet: add your income and expenses in Gastos.")
     s = mwr.summary(snaps, flows).iloc[0]
     _, twr_annual = mwr.twr(snaps, flows)
     return {
@@ -33,7 +32,7 @@ def build(p):
                      caption=f"Savings up to {flows[-1][0]:%d %b %Y} · latest snapshot {snaps[-1][0]:%d %b %Y}",
                      unit="/yr"),
         "controls": [],
-        "sections": [sec(p) for sec in (periods, money_in, monthly, vs_benchmark, update_savings)],
+        "sections": [sec(p) for sec in (periods, money_in, monthly, vs_benchmark)],
     }
 
 
@@ -147,26 +146,3 @@ def vs_benchmark(p):
     lines.insert(0, f"You: time-weighted **{you_total:.1%}** total, **{you_annual:.1%}/yr**. "
                     "Lower chart: above 0 means you are ahead.")
     return [table(table_df), chart(style(fig, height=600)), notes(lines)]
-
-
-@section("Update savings", "Net savings come from the TOTAL and INGRESOS tabs of the Gastos sheet. "
-         "Rows typed “📈 Investments” are returns, so they are left out.")
-def update_savings(p):
-    snaps, flows = data.snaps_and_flows()
-    age = data.cashflows_age_hours()
-    status = (f"cashflows.csv: {len(flows)} days, last {flows[-1][0]:%d %b %Y} · "
-              f"updated {'less than an hour' if age < 1 else f'{age:.0f} hours' if age < 48 else f'{age / 24:.0f} days'} ago")
-    blocks = []
-    if data.sheet_configured():
-        auto = config.SHEET_AUTO_SYNC_HOURS
-        blocks.append(action("Sync from Google Sheets", "/api/sheet-sync",
-                             status + (f" · syncs by itself when older than {auto} h" if auto else "")))
-        if data.last_auto_sync_error:
-            blocks.append(notes([f"**Automatic sync failed:** {data.last_auto_sync_error}"]))
-    else:
-        blocks.append(notes(["**Connect the sheet:** paste its link into GASTOS_SHEET_URL in config.py "
-                             "(see sheets.py for access)."]))
-    blocks.append(text("Or upload the CSV downloads by hand (File › Download › CSV):"))
-    blocks.append(raw("upload", action="/api/cashflows", fields=[("total", "TOTAL.csv"), ("ingresos", "INGRESOS.csv")],
-                      status="" if data.sheet_configured() else status))
-    return blocks
