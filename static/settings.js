@@ -37,6 +37,12 @@ function row(f, v) {
   return `<label class="st-row">${text}<input type="${esc(f.type)}" ${n} value="${esc(v)}"></label>`;
 }
 
+// Other tabs of the site (Gastos, Portfolio) hear about a setting that changes what they show: the demo switch.
+const channel = "BroadcastChannel" in window ? new BroadcastChannel("mymoney-settings") : null;
+export function reloadWhenDemoChanges() {
+  if (channel) channel.onmessage = (ev) => { if (ev.data?.name === "demo") location.reload(); };
+}
+
 let dialog;
 async function ready() {
   if (dialog) return dialog;
@@ -92,6 +98,8 @@ export async function openSettings({ app, accent, actions = [], onChange = () =>
     try {
       const saved = await getJson("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [name]: value }) });
       note.textContent = "Saved ✓"; note.classList.remove("bad");
+      if (name === "demo") await forgetLocal();  // the offline copy of the entries would show the other kind of data
+      channel?.postMessage({ name, value });
       onChange(name, value, saved);
     } catch (err) {
       note.textContent = err.message; note.classList.add("bad");

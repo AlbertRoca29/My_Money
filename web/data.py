@@ -20,9 +20,11 @@ import pandas as pd
 
 import backtest
 import config
+import demo
 import gsheet
 import lookthrough
 import mwr
+import settings
 from gastos import db as gastos_db
 
 lookthrough.CHINA_REFERENCE = config.CHINA_REFERENCE
@@ -41,6 +43,8 @@ def _fingerprint(tab):
 
 def data_version(savings=False):
     """Changes whenever the snapshots (and with savings=True, the movements) change, and once a day."""
+    if settings.get("demo"):
+        return date.today(), "demo", None
     return date.today(), _fingerprint(SNAPSHOTS), _fingerprint(config.MOVEMENTS_TAB) if savings else None
 
 
@@ -85,6 +89,8 @@ def _category_order(c):
 @cached
 def portfolios():
     """{Timestamp: {category: {asset: amount}}}, sorted by date."""
+    if settings.get("demo"):
+        return demo.portfolios()
     rows = gsheet.rows(SNAPSHOTS)
     if not rows:
         return {}
@@ -157,6 +163,8 @@ def parse_amount(v):
 
 def save_snapshot(day, portfolio):
     """Put one snapshot in the Snapshots tab (replacing that date's rows). Returns (date, it replaced one)."""
+    if settings.get("demo"):
+        raise ValueError("Demo data is on: turn it off in Settings to save a snapshot")
     day = datetime.strptime(str(day), "%Y-%m-%d" if "-" in str(day) else config.DATE_FORMAT).date()
     new = [[day.isoformat(), category, str(name).strip(), round(parse_amount(v), 2)]
            for category in list(config.ASSET_TYPES) + [c for c in portfolio if c not in config.ASSET_TYPES]

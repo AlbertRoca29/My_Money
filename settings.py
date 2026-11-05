@@ -20,6 +20,8 @@ FIELDS = [
     dict(name="nav", group="Look", label="Tabs on the phone", type="select", default="top",
          help="Mixed: Gastos at the bottom, Portfolio at the top",
          options=[("mixed", "Mixed"), ("bottom", "Bottom on both"), ("top", "Top on both")]),
+    dict(name="demo", group="Demo", label="Show demo data", type="toggle", default=False,
+         help="Made-up expenses and portfolio, in both Gastos and Portfolio (no Exposure tab). Your sheet isn't read or changed"),
     dict(name="top_min", group="Gastos", label="Biggest expenses: 4th and 5th from (€)", type="number", default=30,
          min=0, max=10000, step=1, help="Home always lists the top 3; the 4th and 5th only if they're above this"),
     dict(name="home_trend", group="Gastos", label="12-month trend on Home", type="toggle", default=True),

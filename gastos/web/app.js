@@ -666,6 +666,7 @@ $("#open-settings").addEventListener("click", async () => {
       actions: [{ label: "Tidy names", help: "Merge “T-SHIRT 👕”, “t shirt” and “zara shrt” into one name, or fix a typo everywhere", run: () => openTidy() }],
       onChange(name, value, values) {
         state.settings = values;
+        if (name === "demo") return location.reload();
         if (name === "nav") applyNav();
         render();
       },
@@ -675,5 +676,6 @@ $("#open-settings").addEventListener("click", async () => {
 window.addEventListener("hashchange", () => { render(); scrollTo(0, 0); });
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+import("/static/settings.js").then((m) => m.reloadWhenDemoChanges()).catch(() => {});
 loadSettings();
 reload();

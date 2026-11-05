@@ -481,6 +481,7 @@ $("#open-settings").addEventListener("click", async () => {
     openSettings({
       app: "portfolio", accent: "var(--blue)",
       onChange(name, value) {
+        if (name === "demo") return location.reload();
         if (name === "nav") applyNav(value);
         if (name === "show_backtest") document.querySelectorAll("[data-page=backtest]").forEach((a) => (a.hidden = !value));
         // drop the page's own value for this setting (if any) so the saved one shows
@@ -490,6 +491,7 @@ $("#open-settings").addEventListener("click", async () => {
     });
   } catch (e) { toast(e.message, true); }
 });
+import("/static/settings.js").then((m) => m.reloadWhenDemoChanges()).catch(() => {});
 api("/api/settings").then((r) => r.json()).then((s) => applyNav(s.values.nav)).catch(() => {});
 
 // ---------- Start ----------

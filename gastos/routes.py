@@ -61,7 +61,10 @@ def save_entry(entry_id=None):
 
 @bp.delete("/api/entries/<entry_id>")
 def delete_entry(entry_id):
-    return jsonify({"deleted": db.delete(entry_id)})
+    try:
+        return jsonify({"deleted": db.delete(entry_id)})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
 
 @bp.post("/api/rename")

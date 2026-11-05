@@ -25,7 +25,9 @@ import secrets
 from datetime import date
 
 import config
+import demo
 import gsheet
+import settings
 
 TAB = config.MOVEMENTS_TAB
 HEADER = ["ID", "Date", "Kind", "Name", "Category", "Amount", "Gross", "Paid by others", "Note", "Receipt"]
@@ -108,6 +110,8 @@ def _row(e):
 
 def all_entries():
     """Every readable row, newest first (rows added later come first within a day)."""
+    if settings.get("demo"):
+        return demo.entries()
     rows = gsheet.rows(TAB)
     if not rows:
         return []
@@ -131,8 +135,14 @@ def _row_number(entry_id):
     return ids.index(entry_id) + 1 if entry_id in ids else None
 
 
+def refuse_in_demo():
+    if settings.get("demo"):
+        raise ValueError("Demo data is on: turn it off in Settings to add or change anything")
+
+
 def save(entry):
     """Add the entry, or replace the row with the same ID."""
+    refuse_in_demo()
     with gsheet.lock:
         n = _row_number(entry["id"])
         if n:
@@ -143,6 +153,7 @@ def save(entry):
 
 
 def delete(entry_id):
+    refuse_in_demo()
     with gsheet.lock:
         n = _row_number(entry_id)
         if n:
@@ -153,6 +164,7 @@ def delete(entry_id):
 def rename(kind, old_names, new_name):
     """Give every `kind` entry named in `old_names` the name `new_name` (merging spellings into one).
     Only the Name cells change. Returns how many entries were renamed."""
+    refuse_in_demo()
     old = set(old_names)
     new_name = new_name.strip()
     if kind not in ("expense", "income") or not new_name:
