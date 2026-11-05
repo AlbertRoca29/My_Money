@@ -32,6 +32,7 @@ sheet as the online app (DEPLOY.md, step 6, sets that up).
 | `static/settings.js`, `settings.css` | The ⚙ sheet itself, shared by both halves (Account, every setting, Data) | change how settings look |
 | `config_local.py` | Your own values (git-ignored): `FUND_SOURCES`, `DIRECT_STOCKS`, `PRICE_SOURCES`, benchmark… | add an ETF/stock |
 | `demo.py` | The made-up movements and portfolio snapshots behind Settings > Show demo data | change what the demo shows |
+| `tidy_names.py` | Not part of the app: merges spellings of a name in your Movements, from a list you write in `name_merges.json` | fix many names at once |
 | `etfs.py` | ISIN, issuer and strategy bucket of popular European ETFs, to copy into `config_local.py` | add an ETF to the list |
 | `web/pages/overview.py` | Overview page: balance, breakdown, value and growth over time | change or add charts on that page |
 | `web/pages/returns.py` | MWR / TWR, money put in vs gain, the "same savings in the benchmark" comparison | — |

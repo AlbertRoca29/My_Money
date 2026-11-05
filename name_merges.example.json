@@ -1,0 +1,9 @@
+{
+  "expense": {
+    "Zara": ["zara shrt", "T-SHIRT 👕"],
+    "Mercadona": ["mercadona 2", "MERCADONA S.A."]
+  },
+  "income": {
+    "Salary": ["salario"]
+  }
+}

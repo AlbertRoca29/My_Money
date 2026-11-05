@@ -14,6 +14,8 @@ from datetime import date, timedelta
 
 import pandas as pd
 
+import config
+
 START = date(2025, 3, 1)
 SEED = 7
 
@@ -100,39 +102,52 @@ def _net_by_day(today):
     return net
 
 
-# asset: (category, value on the first snapshot, expected weekly return, market beta, own weekly noise,
-#         share of the new savings it receives; the shares add up to 1)
-ASSETS = {
-    "Checking account": ("Cash", 2400, 0, 0, 0, 0.10),
-    "Savings account": ("Cash", 5200, 0.0005, 0, 0, 0.10),
-    "World ETF": ("ETFs", 14500, 0.0018, 1.0, 0.002, 0.45),
-    "Emerging Markets ETF": ("ETFs", 3100, 0.0012, 1.1, 0.008, 0.10),
-    "Small Cap Value ETF": ("ETFs", 2300, 0.0017, 1.1, 0.006, 0.10),
-    "Apple": ("Stocks", 1800, 0.0020, 1.1, 0.014, 0.03),
-    "Nvidia": ("Stocks", 1500, 0.0040, 1.8, 0.030, 0.03),
-    "Inditex": ("Stocks", 1100, 0.0020, 0.9, 0.014, 0.03),
-    "Gold": ("Commodities", 1300, 0.0014, 0.0, 0.016, 0.04),
-    "Bitcoin": ("Crypto", 900, 0.0030, 1.5, 0.050, 0.02),
-}
+def _assets():
+    """asset: (category, value on the first snapshot, expected weekly return, market beta, own weekly noise,
+    share of the new savings it receives; the shares add up to 1).
+
+    The funds and stocks are the ones named in config_local.py (FUND_SOURCES, DIRECT_STOCKS) with made-up amounts, so
+    Exposure and Backtest, which download data for those names, work with demo data too. Without them, generic names
+    are used (and those two pages stay empty)."""
+    funds = list(config.FUND_SOURCES) or ["World ETF", "Emerging Markets ETF", "Small Cap Value ETF"]
+    stocks = list(config.DIRECT_STOCKS) or ["Apple", "Nvidia", "Inditex"]
+    bench = config.LOOKTHROUGH_BENCHMARK
+    if bench in funds:  # the comparison fund is the biggest holding
+        funds.insert(0, funds.pop(funds.index(bench)))
+    fund_values = [14500 * 0.6 ** i for i in range(len(funds))]
+    out = {
+        "Checking account": ("Cash", 2400, 0, 0, 0, 0.10),
+        "Savings account": ("Cash", 5200, 0.0005, 0, 0, 0.10),
+        "Gold": ("Commodities", 1300, 0.0014, 0.0, 0.016, 0.04),
+        "Bitcoin": ("Crypto", 900, 0.0030, 1.5, 0.050, 0.02),
+    }
+    for name, value in zip(funds, fund_values):
+        emerging = bool(config.FUND_SOURCES.get(name, {}).get("emerging"))
+        out[name] = ("ETFs", round(value), 0.0012 if emerging else 0.0017, 1.1 if emerging else 1.0, 0.004,
+                     0.60 * value / sum(fund_values))
+    for i, name in enumerate(stocks):
+        out[name] = ("Stocks", round(1600 * 0.85 ** i), 0.0020, 1.3, 0.020, 0.14 / len(stocks))
+    return out
 
 
 @functools.lru_cache(maxsize=2)
 def _portfolios(today):
     rng = random.Random(SEED + 1)
     net = _net_by_day(today)
+    assets = _assets()
     day = START + timedelta(days=6)
-    values = {name: float(spec[1]) for name, spec in ASSETS.items()}
+    values = {name: float(spec[1]) for name, spec in assets.items()}
     snaps = {}
     while True:
         snap = snaps[pd.Timestamp(day)] = {}
-        for name, spec in ASSETS.items():
+        for name, spec in assets.items():
             snap.setdefault(spec[0], {})[name] = round(values[name], 2)
         if day >= today:
             return snaps
         nxt = min(day + timedelta(days=7), today)
         saved = sum(v for d, v in net.items() if day < date.fromisoformat(d) <= nxt)
         market = rng.gauss(0, 0.017)
-        for name, (_c, _v, drift, beta, noise, share) in ASSETS.items():
+        for name, (_c, _v, drift, beta, noise, share) in assets.items():
             values[name] = max(0.0, values[name] * (1 + drift + beta * market + rng.gauss(0, noise)) + saved * share)
         day = nxt
 

@@ -62,6 +62,8 @@ function go(page, params) {
 let loadToken = 0;
 async function load() {
   const { page, params } = route();
+  // a tab that is hidden (demo data, Backtest switched off) can still be in the address from before: go to Overview
+  if ($(`#tabs a[data-page="${page}"]`)?.hidden) return go("overview", new URLSearchParams());
   document.querySelectorAll("#tabs a, #tabbar a").forEach((a) => a.classList.toggle("active", a.dataset.page === page));
   const tab = $("#tabs a.active"), tabs = $("#tabs");
   if (tab) tabs.scrollTo({ left: tab.offsetLeft - (tabs.clientWidth - tab.offsetWidth) / 2, behavior: "smooth" });

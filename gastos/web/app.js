@@ -4,13 +4,14 @@ import * as store from "./store.js";
 const EXPENSE_CATS = ["🛒 Groceries", "🍽️ Restaurants & Cafés", "🚌 Transportation", "🩺 Health & Personal Care",
   "🎨 Arts & Culture", "👕 Clothing", "🎉 Parties & Nightlife", "🏡 Housing", "🤷 Miscellaneous"];
 const INCOME_CATS = ["💼 Job", "📈 Investments", "🎁 Gifts", "📦 Selling", "🌀 Other"];
+const EARN_MIN = 30;   // Home lists income entries above this (€)
 const PALETTE = ["#0666EB", "#F5A524", "#00A86B", "#E5484D", "#8E4EC6", "#12A5B0", "#D6409F", "#7A8B99", "#C2700B",
   "#3E63DD", "#2F9E44", "#B54708"];
 
 const state = {
   entries: [],
   month: monthKey(new Date()),   // "2026-11"
-  list: { q: "", kind: "all", cat: "" },
+  list: { q: "", kind: "all", cat: "", sort: "date", catOpen: false },
   period: "12m",                 // Stats: "12m" (last 12 months) or a year, "2025"
   settings: {},                  // ../../settings.py values (hide_others, top_min, nav…)
 };
@@ -28,7 +29,8 @@ function monthKey(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).pad
 function shiftMonth(key, step) { const [y, m] = key.split("-").map(Number); return monthKey(new Date(y, m - 1 + step, 1)); }
 function monthName(key, opts = { month: "long", year: "numeric" }) {
   const [y, m] = key.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString("en-GB", opts);
+  // en-GB spells September "Sept" when short; en-US gives the usual "Sep"
+  return new Date(y, m - 1, 1).toLocaleDateString(opts.month === "short" ? "en-US" : "en-GB", opts);
 }
 // "Nov 26": short month and two-digit year, for the month picker
 function monthShort(key) { return `${monthName(key, { month: "short" })} ${key.slice(2, 4)}`; }
@@ -93,14 +95,14 @@ function toast(msg, isError = false) {
 }
 
 // ---------------------------------------------------------------- pieces
-function row(e) {
+function row(e, withDate = false) {
   const sign = e.kind === "income" ? "+" : "−";
   const cls = e.kind === "income" ? "pos" : counts(e) ? "" : "other";
   return `<button class="row" data-id="${esc(e.id)}">
     <span class="avatar" style="--c:${colorOf(e.category)}">${esc(emoji(e.category))}</span>
     <span class="row-main">
       <span class="row-name">${esc(e.name)}${e.receipt ? ' <span class="clip" title="Has receipt">📎</span>' : ""}</span>
-      <span class="row-sub">${esc(label(e.category))}</span>
+      <span class="row-sub">${esc(label(e.category))}${withDate ? ` · ${esc(dayName(e.date))}` : ""}</span>
     </span>
     <span class="row-amt ${cls}">${sign}${eur(e.amount)}</span>
   </button>`;
@@ -150,28 +152,6 @@ function monthChart(months) {
     <div class="legend"><span><i style="background:var(--pos)"></i>Income</span><span><i style="background:var(--neg)"></i>Spent</span><span class="muted">Tap a month to open it</span></div>`;
 }
 
-// Twelve small bars of monthly spending, ending at the month on screen (that one in orange). Tap a bar to open it.
-function trendChart(endKey) {
-  const keys = Array.from({ length: 12 }, (_, i) => shiftMonth(endKey, i - 11));
-  const spent = keys.map((k) => totals(inMonth(k)).spent);
-  const active = spent.filter((v) => v > 0);
-  const avg = active.length ? active.reduce((a, b) => a + b, 0) / active.length : 0;
-  const slot = 26, bw = 16, H = 96, base = H - 18, max = Math.max(1, ...spent);
-  const bars = keys.map((k, i) => {
-    const h = Math.max(spent[i] ? 3 : 0, (base - 6) * (spent[i] / max)), x = i * slot + (slot - bw) / 2;
-    return `<g class="mbar" data-month="${k}">
-      <rect class="hit" x="${i * slot}" y="0" width="${slot}" height="${H}" rx="6" fill="transparent"/>
-      <rect x="${x}" y="${base - h}" width="${bw}" height="${h}" rx="4" fill="${k === endKey ? "var(--accent)" : "#CDD3DA"}"/>
-      <text x="${i * slot + slot / 2}" y="${H - 4}" text-anchor="middle" class="${k === endKey ? "cur" : ""}">${monthName(k, { month: "narrow" })}</text>
-      <title>${monthName(k)} — ${eur0(spent[i])}</title></g>`;
-  }).join("");
-  const ay = base - (base - 6) * (avg / max);
-  return `<svg class="chart trend" viewBox="0 0 ${slot * 12} ${H}" role="img" aria-label="Spending per month">
-    <line x1="0" x2="${slot * 12}" y1="${base}" y2="${base}" stroke="var(--line)"/>
-    ${avg ? `<line x1="0" x2="${slot * 12}" y1="${ay}" y2="${ay}" stroke="var(--muted)" stroke-dasharray="3 3"/>` : ""}${bars}</svg>
-    <div class="legend"><span>Average <b>${eur0(avg)}</b> a month</span><span class="muted">Tap a bar to open it</span></div>`;
-}
-
 // The month's spending as one stacked bar, then the biggest categories (the rest summed as "Other").
 function catStack(pairs, total) {
   if (!pairs.length) return `<p class="empty">Nothing spent yet.</p>`;
@@ -193,27 +173,29 @@ function distance(a, b) {
   }
   return prev[b.length];
 }
-// Too short to guess ("bus" vs "bar"), so only longer names count as near-misses of each other.
-const similar = (a, b) => a === b || (Math.min(a.length, b.length) >= 5 && distance(a, b) <= (Math.min(a.length, b.length) >= 9 ? 2 : 1));
-
-// Names of one kind with how many entries use each, grouped when they look like the same thing.
-function nameGroups(kind) {
+// Names of one kind with how many entries use each, most used first.
+function nameList(kind) {
   const counts = new Map();
   for (const e of state.entries) if (e.kind === kind) counts.set(e.name, (counts.get(e.name) || 0) + 1);
-  const names = [...counts].map(([name, n]) => ({ name, n, key: norm(name) })).filter((x) => x.key);
-  const parent = names.map((_, i) => i);
-  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
-  for (let i = 0; i < names.length; i++) for (let j = i + 1; j < names.length; j++)
-    if (similar(names[i].key, names[j].key)) parent[find(j)] = find(i);
-  const groups = new Map();
-  names.forEach((x, i) => groups.set(find(i), [...(groups.get(find(i)) || []), x]));
-  return {
-    all: names.sort((a, b) => b.n - a.n),
-    similar: [...groups.values()].filter((g) => g.length > 1).map((g) => g.sort((a, b) => b.n - a.n)),
-  };
+  return [...counts].map(([name, n]) => ({ name, n, key: norm(name) })).filter((x) => x.key).sort((a, b) => b.n - a.n);
 }
 
-const catOptions = (kind, cur) => categories(kind).map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("");
+// Movements' category filter: a button that opens a menu (a native <select> looks different on every phone).
+function catPicker(kind, cat) {
+  const item = (value, c, text) => `<button type="button" class="catopt ${value === cat ? "on" : ""}" data-cat="${esc(value)}">
+    <span class="avatar sm" style="--c:${c ? colorOf(c) : "var(--ink-2)"}">${c ? esc(emoji(c)) : "✦"}</span><span>${esc(text)}</span>
+    ${value === cat ? '<svg class="tick"><use href="#i-check"/></svg>' : ""}</button>`;
+  const group = (k, title) => `${title ? `<div class="cathead">${title}</div>` : ""}${categories(k).map((c) => item(c, c, label(c))).join("")}`;
+  const all = kind === "income" ? "All income" : kind === "expense" ? "All expenses" : "All categories";
+  const menu = kind === "all" ? group("expense", "Expenses") + group("income", "Income") : group(kind);
+  return `<div class="catpick">
+    <button type="button" class="catbtn ${cat ? "set" : ""}" id="cat-btn" aria-haspopup="listbox" aria-expanded="${state.list.catOpen}">
+      ${cat ? `<span class="avatar sm" style="--c:${colorOf(cat)}">${esc(emoji(cat))}</span><span>${esc(label(cat))}</span>` : `<span>${all}</span>`}
+      <svg class="chev"><use href="#i-chevron"/></svg>
+    </button>
+    ${state.list.catOpen ? `<div class="catmenu" role="listbox">${item("", null, all)}${menu}</div>` : ""}
+  </div>`;
+}
 
 // ---------------------------------------------------------------- views
 const views = {
@@ -233,6 +215,8 @@ const views = {
     const minTop = Number(state.settings.top_min ?? 30);
     const top = month.filter((e) => e.kind === "expense" && counts(e)).sort((a, b) => b.amount - a.amount)
       .filter((e, i) => i < 3 || e.amount > minTop).slice(0, 5);
+    // The biggest income entries, only the ones above EARN_MIN
+    const earned = month.filter((e) => e.kind === "income" && e.amount > EARN_MIN).sort((a, b) => b.amount - a.amount).slice(0, 5);
     return `
       <div class="wide">
         <section class="hero">
@@ -248,13 +232,13 @@ const views = {
       <section class="card"><h2>Where it went</h2>${catStack(byCat, t.spent)}</section>
       <section class="card">
         <h2>Biggest expenses <a href="#list" class="link">See all</a></h2>
-        ${top.length ? `<div class="rows">${top.map(row).join("")}</div>` : `<p class="empty">Nothing spent this month yet.</p>`}
+        ${top.length ? `<div class="rows">${top.map((e) => row(e)).join("")}</div>` : `<p class="empty">Nothing spent this month yet.</p>`}
       </section>
-      ${state.settings.home_trend === false ? "" : `<section class="card"><h2>Last 12 months</h2>${trendChart(state.month)}</section>`}`;
+      ${earned.length ? `<section class="card"><h2>Biggest earnings</h2><div class="rows">${earned.map((e) => row(e)).join("")}</div></section>` : ""}`;
   },
 
   list() {
-    const { q, kind, cat } = state.list;
+    const { q, kind, cat, sort } = state.list;
     const needle = q.trim().toLowerCase();
     // A search looks through every month; otherwise only the selected one.
     let items = needle ? state.entries.filter((e) => `${e.name} ${e.category} ${e.note || ""}`.toLowerCase().includes(needle)) : inMonth(state.month);
@@ -263,6 +247,7 @@ const views = {
     if (kind === "expense") items = items.filter((e) => e.kind === "expense");
     if (kind === "income") items = items.filter((e) => e.kind === "income");
     if (cat) items = items.filter((e) => e.category === cat);
+    if (sort === "amount") items = [...items].sort((a, b) => b.amount - a.amount);
     const t = totals(items);
     const days = Map.groupBy ? Map.groupBy(items, (e) => e.date) : items.reduce((m, e) => m.set(e.date, [...(m.get(e.date) || []), e]), new Map());
     const chip = (k, txt) => `<button class="chip ${kind === k ? "on" : ""}" data-kind="${k}">${txt}</button>`;
@@ -270,19 +255,23 @@ const views = {
       <div class="filters">
         <input id="q" type="search" placeholder="Search all months…" value="${esc(q)}" autocomplete="off">
         <div class="chips">${chip("all", "All")}${chip("expense", "Expenses")}${chip("income", "Income")}</div>
-        <select id="cat"><option value="">${kind === "income" ? "All income" : kind === "expense" ? "All expenses" : "All categories"}</option>
-          ${kind === "all"
-            ? ["expense", "income"].map((k) => `<optgroup label="${k === "income" ? "Income" : "Expenses"}">${catOptions(k, cat)}</optgroup>`).join("")
-            : catOptions(kind, cat)}
-        </select>
+        <div class="filter-row">
+          ${catPicker(kind, cat)}
+          <div class="sortseg" role="group" aria-label="Sort by">
+            <button type="button" data-sort="date" class="${sort === "date" ? "on" : ""}">Date</button>
+            <button type="button" data-sort="amount" class="${sort === "amount" ? "on" : ""}">Amount</button>
+          </div>
+        </div>
       </div>
       <div class="days">
       <p class="summary">${items.length} movements${needle ? " (all months)" : ""} · spent <b>${eur(t.spent)}</b> · income <b class="pos">${eur(t.income)}</b></p>
-      ${items.length ? [...days].map(([day, es]) => {
+      ${!items.length ? `<p class="empty">Nothing matches.</p>`
+        : sort === "amount" ? `<div class="rows flat">${items.map((e) => row(e, true)).join("")}</div>`
+        : [...days].map(([day, es]) => {
         const net = totals(es);
         return `<section class="day"><h3>${esc(dayName(day))}<span>${net.spent ? "−" + eur(net.spent) : ""}</span></h3>
-          <div class="rows">${es.map(row).join("")}</div></section>`;
-      }).join("") : `<p class="empty">Nothing matches.</p>`}
+          <div class="rows">${es.map((e) => row(e)).join("")}</div></section>`;
+      }).join("")}
       </div>`;
   },
 
@@ -487,15 +476,15 @@ function openSheet(entry = null) {
 }
 
 // ---------------------------------------------------------------- tidy names
-// Settings > Names: merge spellings of the same thing, or rename one. Uses the same bottom sheet.
+// Settings > Tidy names: rename a name everywhere (typing one that exists merges them). Uses the same bottom sheet.
+// Merging many spellings at once happens outside the app: ../tidy_names.py applies name_merges.json.
 function openTidy(kind = "expense") {
   const dlg = $("#sheet");
   let renaming = null;   // a name being renamed, or null
   let q = "";
-  const pick = new Map(); // group index -> chosen name
 
   function draw() {
-    const { all, similar: groups } = nameGroups(kind);
+    const all = nameList(kind);
     const needle = norm(q);
     const list = all.filter((x) => !needle || x.key.includes(needle)).sort((a, b) => a.name.localeCompare(b.name));
     dlg.innerHTML = `<div class="sheet-body tidy">
@@ -507,16 +496,10 @@ function openTidy(kind = "expense") {
       ${renaming !== null ? `<div class="rename"><p><b>${esc(renaming)}</b> → <small>every entry with this name changes; if the new name exists, they merge</small></p>
           <input id="newname" value="${esc(renaming)}" autocomplete="off" autocapitalize="sentences" spellcheck="false">
           <div class="sheet-actions"><button type="button" class="pill" id="rn-cancel">Back</button><button type="button" class="pill dark" id="rn-save">Rename</button></div></div>` : `
-      <h3>Looks like the same thing</h3>
-      ${groups.length ? groups.map((g, gi) => {
-        const target = pick.get(gi) ?? g[0].name;
-        return `<div class="merge"><div class="names">${g.map((x) => `<button type="button" class="nm ${x.name === target ? "on" : ""}" data-g="${gi}" data-nm="${esc(x.name)}">${esc(x.name)} <small>×${x.n}</small></button>`).join("")}</div>
-          <button type="button" class="pill dark" data-merge="${gi}">Merge into “${esc(target)}”</button></div>`;
-      }).join("") : `<p class="empty">Nothing looks duplicated.</p>`}
       <h3>All names <small>${all.length}</small></h3>
       <input id="tq" type="search" placeholder="Search names…" value="${esc(q)}" autocomplete="off">
       <div class="all">${list.map((x) => `<button type="button" class="nm" data-rename="${esc(x.name)}">${esc(x.name)} <small>×${x.n}</small></button>`).join("") || `<p class="empty">No names.</p>`}</div>
-      <p class="muted small">Tap a name to rename it. In a group, tap the spelling you want to keep, then Merge.</p>
+      <p class="muted small">Tap a name to rename it. To merge many spellings at once, list them in name_merges.json and run tidy_names.py.</p>
       <div class="sheet-actions"><button type="button" class="pill dark" id="tidy-done">Done</button></div>`}
     </div>`;
   }
@@ -535,14 +518,9 @@ function openTidy(kind = "expense") {
     if (ev.target === dlg) return dlg.close();
     const btn = ev.target.closest("button");
     if (!btn) return;
-    const { k, g, nm, merge, rename } = btn.dataset;
+    const { k, rename } = btn.dataset;
     if (k) { kind = k; renaming = null; draw(); }
-    else if (g !== undefined) { pick.set(Number(g), nm); draw(); }
-    else if (merge !== undefined) {
-      const group = nameGroups(kind).similar[Number(merge)];
-      const to = pick.get(Number(merge)) ?? group[0].name;
-      apply(group.map((x) => x.name).filter((n) => n !== to), to);
-    } else if (rename !== undefined) { renaming = rename; draw(); $("#newname", dlg).select(); }
+    else if (rename !== undefined) { renaming = rename; draw(); $("#newname", dlg).select(); }
     else if (btn.id === "rn-cancel") { renaming = null; draw(); }
     else if (btn.id === "rn-save") {
       const to = $("#newname", dlg).value.trim();
@@ -572,7 +550,7 @@ function render() {
   document.querySelectorAll("[data-tab]").forEach((a) => a.classList.toggle("active", a.dataset.tab === r));
   $("#month").hidden = r === "stats";
   $("#month-label").textContent = monthShort(state.month);
-  $("#month [data-step='1']").disabled = state.month >= monthKey(new Date());
+  drawMonthPop();
 }
 
 async function reload() {
@@ -592,6 +570,12 @@ async function reload() {
 $("#view").addEventListener("click", async (ev) => {
   const rowBtn = ev.target.closest(".row");
   if (rowBtn) return openSheet(state.entries.find((e) => e.id === rowBtn.dataset.id));
+  const sortBtn = ev.target.closest("[data-sort]");
+  if (sortBtn) { state.list.sort = sortBtn.dataset.sort; return render(); }
+  if (ev.target.closest("#cat-btn")) { state.list.catOpen = !state.list.catOpen; return render(); }
+  const opt = ev.target.closest(".catopt");
+  if (opt) { state.list.cat = opt.dataset.cat; state.list.catOpen = false; return render(); }
+  if (state.list.catOpen && !ev.target.closest(".catpick")) { state.list.catOpen = false; render(); }
   const chip = ev.target.closest(".chip");
   if (chip?.dataset.period) { state.period = chip.dataset.period; return render(); }
   if (chip) {
@@ -615,9 +599,6 @@ $("#view").addEventListener("input", (ev) => {
   render();
   const q = $("#q"); q.focus(); q.setSelectionRange(pos, pos);
 });
-$("#view").addEventListener("change", (ev) => {
-  if (ev.target.id === "cat") { state.list.cat = ev.target.value; render(); }
-});
 
 // App switcher menu (top left)
 const appBtn = $(".app-btn"), appMenu = $(".app-menu");
@@ -629,18 +610,62 @@ appBtn.addEventListener("click", (ev) => {
 });
 document.addEventListener("click", (ev) => { if (!ev.target.closest(".switcher")) closeApps(); });
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeApps(); });
-// Months go from the first one with data up to the current month, never into the future.
-function stepMonth(step) {
-  const next = shiftMonth(state.month, step);
-  if (next > monthKey(new Date())) return;
-  state.month = next;
+// Switching month slides the old page out and the new one in (dir 1: the new month comes from the right).
+// The old page is a copy that stays on top until it has left; the real one is already the new month underneath.
+function slideTo(key, dir) {
+  if (key === state.month || key > monthKey(new Date())) return;
+  const view = $("#view"), r = view.getBoundingClientRect();
+  const ghost = view.cloneNode(true);
+  ghost.removeAttribute("id");
+  Object.assign(ghost.style, { position: "absolute", top: `${r.top + scrollY}px`, left: `${r.left + scrollX}px`,
+    width: `${r.width}px`, margin: "0", pointerEvents: "none" });
+  state.month = key;
   render();
-  $("#view").animate([{ opacity: 0, transform: `translateX(${step * 24}px)` }, { opacity: 1, transform: "none" }], { duration: 180, easing: "ease-out" });
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  document.body.append(ghost);
+  document.documentElement.classList.add("sliding");
+  const opts = { duration: 280, easing: "cubic-bezier(.32,.72,.24,1)", fill: "both" };
+  ghost.animate([{ transform: "none", opacity: 1 }, { transform: `translateX(${-dir * 35}%)`, opacity: 0 }], opts)
+    .onfinish = () => { ghost.remove(); document.documentElement.classList.remove("sliding"); };
+  view.animate([{ transform: `translateX(${dir * 35}%)`, opacity: 0 }, { transform: "none", opacity: 1 }], opts);
 }
-$("#month").addEventListener("click", (ev) => {
-  const step = Number(ev.target.dataset.step);
-  if (step) stepMonth(step);
+const stepMonth = (step) => slideTo(shiftMonth(state.month, step), step);
+
+// Month picker: tap the month in the top bar, pick a year and a month. Months go up to the current one, never beyond.
+const monthPop = { open: false, year: null };
+function drawMonthPop() {
+  $("#month-label").textContent = monthShort(state.month);
+  const pop = $("#month-pop"), btn = $("#month-btn");
+  pop.hidden = !monthPop.open;
+  btn.setAttribute("aria-expanded", String(monthPop.open));
+  if (!monthPop.open) return;
+  const now = monthKey(new Date()), thisYear = Number(now.slice(0, 4));
+  const first = Math.min(thisYear, ...state.entries.map((e) => Number(e.date.slice(0, 4))));
+  const year = monthPop.year ?? Number(state.month.slice(0, 4));
+  const has = new Set(state.entries.map((e) => e.date.slice(0, 7)));
+  pop.innerHTML = `<div class="years">${Array.from({ length: thisYear - first + 1 }, (_, i) => thisYear - i).reverse()
+      .map((y) => `<button type="button" data-year="${y}" class="${y === year ? "on" : ""}">${y}</button>`).join("")}</div>
+    <div class="months">${Array.from({ length: 12 }, (_, i) => {
+      const key = `${year}-${String(i + 1).padStart(2, "0")}`;
+      return `<button type="button" data-m="${key}" class="${key === state.month ? "on" : ""} ${has.has(key) ? "has" : ""}" ${key > now ? "disabled" : ""}>${monthName(key, { month: "short" })}</button>`;
+    }).join("")}</div>
+    <button type="button" class="today" data-m="${now}" ${state.month === now ? "disabled" : ""}>This month</button>`;
+}
+function toggleMonthPop(open = !monthPop.open) {
+  monthPop.open = open;
+  monthPop.year = null;
+  drawMonthPop();
+}
+$("#month-btn").addEventListener("click", (ev) => { ev.stopPropagation(); toggleMonthPop(); });
+$("#month-pop").addEventListener("click", (ev) => {
+  ev.stopPropagation();
+  const b = ev.target.closest("button");
+  if (!b) return;
+  if (b.dataset.year) { monthPop.year = Number(b.dataset.year); drawMonthPop(); }
+  else if (b.dataset.m) { toggleMonthPop(false); slideTo(b.dataset.m, b.dataset.m > state.month ? 1 : -1); }
 });
+document.addEventListener("click", () => { if (monthPop.open) toggleMonthPop(false); });
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && monthPop.open) toggleMonthPop(false); });
 
 // Swipe left / right on Home and Movements for the next / previous month.
 let swipe = null;
@@ -663,7 +688,7 @@ $("#open-settings").addEventListener("click", async () => {
     const { openSettings } = await import("/static/settings.js");
     openSettings({
       app: "gastos", accent: "var(--accent)",
-      actions: [{ label: "Tidy names", help: "Merge “T-SHIRT 👕”, “t shirt” and “zara shrt” into one name, or fix a typo everywhere", run: () => openTidy() }],
+      actions: [{ label: "Tidy names", help: "Fix a name everywhere, or merge it into another one", run: () => openTidy() }],
       onChange(name, value, values) {
         state.settings = values;
         if (name === "demo") return location.reload();

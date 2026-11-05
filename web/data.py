@@ -216,7 +216,8 @@ def lookthrough_result():
     r = lookthrough.build_lookthrough(latest, config.FUND_SOURCES, config.DIRECT_STOCKS,
                                       config.FUND_SOURCES[config.LOOKTHROUGH_BENCHMARK],
                                       date=day.strftime(config.DATE_FORMAT))
-    lookthrough.save_snapshot(r)
+    if not settings.get("demo"):  # demo numbers must not overwrite the day's real look-through
+        lookthrough.save_snapshot(r)
     return r
 
 

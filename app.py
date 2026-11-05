@@ -43,8 +43,6 @@ app.register_blueprint(gastos)  # "/" and its /api/entries, /api/receipts… rou
 def index():
     """The single HTML page. Navigation between pages happens in the browser (static/app.js)."""
     hidden = [] if settings.get("show_backtest") else ["backtest"]  # Settings > Backtest
-    if settings.get("demo"):  # these two download real fund data for the funds in config_local.py
-        hidden = ["exposure", "backtest"]
     return render_template("index.html", pages={k: m.TITLE for k, m in PAGES.items()}, hidden=hidden)
 
 

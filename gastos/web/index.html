@@ -26,6 +26,7 @@
     <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H17a1 1 0 0 1 1 1v2"/><path d="M4 7.5v10A2.5 2.5 0 0 0 6.5 20H19a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1H6.5A2.5 2.5 0 0 1 4 7.5z"/><circle cx="16" cy="14.5" r="1"/></symbol>
     <symbol id="i-growth" viewBox="0 0 24 24"><path d="M3.5 17 9 11.5l4 4L20.5 8"/><path d="M15 8h5.5v5.5"/></symbol>
     <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
   </svg>
 
   <header class="topbar">
@@ -47,9 +48,10 @@
       <a href="#stats" data-tab="stats">Stats</a>
     </nav>
     <div class="month" id="month">
-      <button class="icon-btn" data-step="-1" aria-label="Previous month">‹</button>
-      <span id="month-label"></span>
-      <button class="icon-btn" data-step="1" aria-label="Next month">›</button>
+      <button class="month-btn" id="month-btn" aria-haspopup="dialog" aria-expanded="false" aria-label="Pick a month">
+        <span id="month-label"></span><svg class="chev"><use href="#i-chevron"/></svg>
+      </button>
+      <div class="month-pop" id="month-pop" hidden></div>
     </div>
     <button class="icon-btn gear" id="open-settings" aria-label="Settings"><svg><use href="#i-settings"/></svg></button>
     <button class="pill accent" id="add-top"><svg class="ico"><use href="#i-plus"/></svg>Add</button>

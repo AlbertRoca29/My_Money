@@ -18,3 +18,6 @@ gastos/receipts/
 /files/
 /backup/
 deploy.env
+
+# Merges you list by hand for tidy_names.py
+name_merges.json
