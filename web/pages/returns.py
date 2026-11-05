@@ -60,8 +60,39 @@ def build(p):
                      caption=f"{start[0]:%d %b %Y} → {end[0]:%d %b %Y} (snapshots)" + (" · not annualised" if short else ""),
                      unit=None if short else "/yr"),
         "controls": [chips("period", _periods(snaps), period)],
-        "sections": [sec(p) for sec in (vs_benchmark, periods, money_in, monthly)],
+        "sections": [sec(p) for sec in (mwr_evolution, vs_benchmark, periods, money_in, monthly)],
     }
+
+
+@section("Money-weighted return over time", "Return on your money from the start of the period up to each snapshot "
+                                            "(not annualised, so early points are not exaggerated)")
+def mwr_evolution(p):
+    snaps, flows = data.snaps_and_flows()
+    _, start, end = _window(p, snaps)
+    pts = [s for s in snaps if start[0] <= s[0] <= end[0]]
+    if len(pts) < 2:
+        return None
+    rows = []
+    for i in range(1, len(pts)):
+        r = mwr.mwr(start, pts[i], flows)
+        rows.append((pd.Timestamp(pts[i][0]), r["period"], r["annual"] if (r["to"] - r["from"]).days >= 365 else None,
+                     mwr.twr(pts[:i + 1], flows)[0], r["gain"]))
+    x, period, annual, tw, gain = zip(*rows)
+    x0 = pd.Timestamp(start[0])
+    fig = go.Figure()
+    fig.add_hline(y=0, line=dict(color=BASELINE, width=1))
+    fig.add_trace(go.Scatter(x=[x0, *x], y=[0, *period], name=f"Money-weighted — {period[-1]:+.1%}",
+                             line=dict(color=BLUE, width=3), mode="lines+markers", marker=dict(size=5),
+                             customdata=[0, *gain], hovertemplate="%{y:+.1%} · %{customdata:+,.0f} €<extra>money-weighted</extra>"))
+    fig.add_trace(go.Scatter(x=[x0, *x], y=[0, *tw], name=f"Time-weighted — {tw[-1]:+.1%}",
+                             line=dict(color=CORAL, width=2, dash="dot"),
+                             hovertemplate="%{y:+.1%}<extra>time-weighted</extra>"))
+    if any(a is not None for a in annual):
+        fig.add_trace(go.Scatter(x=list(x), y=list(annual), name="Money-weighted per year (after 1 year)",
+                                 line=dict(color=GREEN, width=2), connectgaps=False, visible="legendonly",
+                                 hovertemplate="%{y:+.1%}/yr<extra>per year</extra>"))
+    fig.update_yaxes(tickformat=".0%")
+    return chart(style(fig, height=380))
 
 
 @section("Money-weighted return", "Your net savings count as deposits; the snapshot total (cash included) "
@@ -148,16 +179,18 @@ def vs_benchmark(p):
     k = param(p, "cash_k", config.BENCHMARK_CASH_K, float)
     name = _bench_name(k)
     snaps, flows = data.snaps_and_flows()
-    alt = data.alternative(1000 * k)
     period, start, end = _window(p, snaps)
-    alt_snaps = mwr.at_snapshots(alt, snaps)
-    alt_start, alt_end = (next(a for a in alt_snaps if a[0] == s[0]) for s in (start, end))
+    # The benchmark gets the value you had at the start of the period and the same savings on the same days, so
+    # its line starts where yours does and the two end values differ by exactly the "ahead / behind" figure.
+    alt = data.alternative_between(1000 * k, start[0], end[0])
+    alt_start, alt_end = (start[0], alt[pd.Timestamp(start[0])]), (end[0], alt[pd.Timestamp(end[0])])
     you, them = mwr.mwr(start, end, flows), mwr.mwr(alt_start, alt_end, flows)
-    lead = you["gain"] - them["gain"]  # same savings on the same days, so the gap is all market
+    short = (end[0] - start[0]).days < 330  # too short to annualise honestly
+    rate = lambda r: f"{r['period']:.1%}" if short else f"{r['annual']:.1%}/yr"
+    lead = end[1] - alt_end[1]  # same start, same savings: the gap is all market
 
     dates = pd.to_datetime([d for d, _ in snaps if start[0] <= d <= end[0]])
     value = pd.Series([v for d, v in snaps if start[0] <= d <= end[0]], index=dates)
-    alt = alt.loc[dates[0]:dates[-1]]
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=alt.index, y=alt, name=name, line=dict(color=CORAL, width=2),
                              hovertemplate="€%{y:,.0f}<extra>" + name + "</extra>"))
@@ -167,7 +200,7 @@ def vs_benchmark(p):
     when = "the last 12 months" if period == "12m" else period
     return {"subtitle": f"The same savings, on the same days, put into {config.BENCHMARK_NAME} with €{k:g}k kept in "
                         f"cash. Market gain in {when}.",
-            "blocks": [duel(side("You", eur(you["gain"], sign=True), f"{you['annual']:.1%}/yr", BLUE),
-                            side(name, eur(them["gain"], sign=True), f"{them['annual']:.1%}/yr", CORAL),
+            "blocks": [duel(side("You", eur(you["gain"], sign=True), rate(you), BLUE),
+                            side(name, eur(them["gain"], sign=True), rate(them), CORAL),
                             f"You are **{eur(abs(lead))}** {'ahead' if lead >= 0 else 'behind'}", tone(lead)),
                        chart(style(fig, height=340))]}

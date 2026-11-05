@@ -107,14 +107,17 @@ def _assets():
     share of the new savings it receives; the shares add up to 1).
 
     The funds and stocks are the ones named in config_local.py (FUND_SOURCES, DIRECT_STOCKS) with made-up amounts, so
-    Exposure and Backtest, which download data for those names, work with demo data too. Without them, generic names
+    Exposure and Backtest, which download data for those names, work with demo data too. Only the funds that also
+    have a PRICE_SOURCES entry are held, so Backtest doesn't leave any of them out. Without them, generic names
     are used (and those two pages stay empty)."""
     funds = list(config.FUND_SOURCES) or ["World ETF", "Emerging Markets ETF", "Small Cap Value ETF"]
+    if config.PRICE_SOURCES:  # funds without a price source are past holdings, and Backtest would drop them
+        funds = [f for f in funds if f in config.PRICE_SOURCES] or funds
     stocks = list(config.DIRECT_STOCKS) or ["Apple", "Nvidia", "Inditex"]
     bench = config.LOOKTHROUGH_BENCHMARK
     if bench in funds:  # the comparison fund is the biggest holding
         funds.insert(0, funds.pop(funds.index(bench)))
-    fund_values = [14500 * 0.6 ** i for i in range(len(funds))]
+    fund_values = [14500 * 0.72 ** i for i in range(len(funds))]
     out = {
         "Checking account": ("Cash", 2400, 0, 0, 0, 0.10),
         "Savings account": ("Cash", 5200, 0.0005, 0, 0, 0.10),

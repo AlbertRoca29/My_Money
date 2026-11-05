@@ -96,15 +96,16 @@ function toast(msg, isError = false) {
 
 // ---------------------------------------------------------------- pieces
 function row(e, withDate = false) {
-  const sign = e.kind === "income" ? "+" : "−";
-  const cls = e.kind === "income" ? "pos" : counts(e) ? "" : "other";
+  const loss = e.kind === "income" && e.amount < 0;   // a negative income is a loss
+  const sign = e.kind === "income" ? (loss ? "−" : "+") : "−";
+  const cls = loss ? "neg" : e.kind === "income" ? "pos" : counts(e) ? "" : "other";
   return `<button class="row" data-id="${esc(e.id)}">
     <span class="avatar" style="--c:${colorOf(e.category)}">${esc(emoji(e.category))}</span>
     <span class="row-main">
       <span class="row-name">${esc(e.name)}${e.receipt ? ' <span class="clip" title="Has receipt">📎</span>' : ""}</span>
       <span class="row-sub">${esc(label(e.category))}${withDate ? ` · ${esc(dayName(e.date))}` : ""}</span>
     </span>
-    <span class="row-amt ${cls}">${sign}${eur(e.amount)}</span>
+    <span class="row-amt ${cls}">${sign}${eur(Math.abs(e.amount))}</span>
   </button>`;
 }
 
@@ -215,8 +216,9 @@ const views = {
     const minTop = Number(state.settings.top_min ?? 30);
     const top = month.filter((e) => e.kind === "expense" && counts(e)).sort((a, b) => b.amount - a.amount)
       .filter((e, i) => i < 3 || e.amount > minTop).slice(0, 5);
-    // The biggest income entries, only the ones above EARN_MIN
-    const earned = month.filter((e) => e.kind === "income" && e.amount > EARN_MIN).sort((a, b) => b.amount - a.amount).slice(0, 5);
+    // The biggest income entries (and losses, which are negative income), only the ones above EARN_MIN in size
+    const earned = month.filter((e) => e.kind === "income" && Math.abs(e.amount) > EARN_MIN)
+      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)).slice(0, 5);
     return `
       <div class="wide">
         <section class="hero">
@@ -234,7 +236,7 @@ const views = {
         <h2>Biggest expenses <a href="#list" class="link">See all</a></h2>
         ${top.length ? `<div class="rows">${top.map((e) => row(e)).join("")}</div>` : `<p class="empty">Nothing spent this month yet.</p>`}
       </section>
-      ${earned.length ? `<section class="card"><h2>Biggest earnings</h2><div class="rows">${earned.map((e) => row(e)).join("")}</div></section>` : ""}`;
+      ${earned.length ? `<section class="card"><h2>Biggest earnings &amp; losses</h2><div class="rows">${earned.map((e) => row(e)).join("")}</div></section>` : ""}`;
   },
 
   list() {
@@ -264,12 +266,17 @@ const views = {
         </div>
       </div>
       <div class="days">
-      <p class="summary">${items.length} movements${needle ? " (all months)" : ""} · spent <b>${eur(t.spent)}</b> · income <b class="pos">${eur(t.income)}</b></p>
+      <p class="summary">${items.length} movements${needle ? " (all months)" : ""} · ${
+        kind === "expense" ? `total <b>${eur(t.spent)}</b>`
+        : kind === "income" ? `total <b class="${t.income < 0 ? "neg" : "pos"}">${eur(t.income)}</b>`
+        : `spent <b>${eur(t.spent)}</b> · income <b class="pos">${eur(t.income)}</b>`}</p>
       ${!items.length ? `<p class="empty">Nothing matches.</p>`
         : sort === "amount" ? `<div class="rows flat">${items.map((e) => row(e, true)).join("")}</div>`
         : [...days].map(([day, es]) => {
         const net = totals(es);
-        return `<section class="day"><h3>${esc(dayName(day))}<span>${net.spent ? "−" + eur(net.spent) : ""}</span></h3>
+        const diff = net.income - net.spent;   // income and expenses on one day add up, with their sign
+        const shownNet = net.spent || net.income ? `${diff < 0 ? "−" : "+"}${eur(Math.abs(diff))}` : "";
+        return `<section class="day"><h3>${esc(dayName(day))}<span class="${diff > 0 ? "pos" : ""}">${shownNet}</span></h3>
           <div class="rows">${es.map((e) => row(e)).join("")}</div></section>`;
       }).join("")}
       </div>`;
@@ -450,7 +457,7 @@ function openSheet(entry = null) {
     capture();
     const err = $(".form-error", dlg);
     const amount = parseAmount(e.amount);
-    const problem = !(amount > 0) ? "Enter an amount (sums like 12,5+3 work)"
+    const problem = !(kind === "income" ? amount : amount > 0) ? "Enter an amount (sums like 12,5+3 work; a negative income is a loss)"
       : !e.name.trim() ? "Enter a name" : !category ? "Pick a category" : !e.date ? "Pick a date" : null;
     if (problem) { err.textContent = problem; err.hidden = false; return; }
     $("#save", dlg).disabled = true;
@@ -650,6 +657,12 @@ function drawMonthPop() {
       return `<button type="button" data-m="${key}" class="${key === state.month ? "on" : ""} ${has.has(key) ? "has" : ""}" ${key > now ? "disabled" : ""}>${monthName(key, { month: "short" })}</button>`;
     }).join("")}</div>
     <button type="button" class="today" data-m="${now}" ${state.month === now ? "disabled" : ""}>This month</button>`;
+  $(".years .on", pop)?.scrollIntoView({ inline: "center", block: "nearest" });   // a long list of years opens on the current one
+  // Keep the popover on screen: it hangs from the button's right edge, so slide it back in if a narrow phone cuts it
+  pop.style.transform = "";
+  const r = pop.getBoundingClientRect(), edge = 12, vw = document.documentElement.clientWidth;
+  const dx = r.left < edge ? edge - r.left : r.right > vw - edge ? vw - edge - r.right : 0;
+  if (dx) pop.style.transform = `translateX(${dx}px)`;
 }
 function toggleMonthPop(open = !monthPop.open) {
   monthPop.open = open;

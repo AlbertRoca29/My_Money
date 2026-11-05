@@ -75,6 +75,7 @@ svg:has(> use) { width: 22px; height: 22px; fill: none; stroke: currentColor; st
   display: grid; gap: 2px; animation: pop .14s ease-out;
 }
 .app-menu[hidden] { display: none; }
+@keyframes pop-in { from { opacity: 0; } }
 @keyframes pop { from { opacity: 0; transform: translateY(-4px); } }
 .app-menu a { display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 8px; border-radius: 14px; font-weight: 600; }
 .app-menu a:hover { background: var(--panel); }
@@ -89,15 +90,17 @@ svg:has(> use) { width: 22px; height: 22px; fill: none; stroke: currentColor; st
 .month-btn .chev { width: 16px; height: 16px; stroke-width: 2.2; color: var(--ink-2); transition: transform .15s; }
 .month-btn[aria-expanded=true] .chev { transform: rotate(180deg); }
 .month-pop {
-  position: absolute; top: calc(100% + 8px); right: 0; z-index: 40; width: 264px; padding: 12px; display: grid; gap: 10px;
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 40; width: min(264px, calc(100vw - 24px)); padding: 12px; display: grid; gap: 10px;
   background: var(--surface); border-radius: 20px; box-shadow: 0 12px 40px rgba(25,28,31,.16), 0 0 0 1px var(--line);
-  animation: pop .14s ease-out;
+  animation: pop-in .14s ease-out;
 }
 .month-pop[hidden] { display: none; }
 .month-pop .years { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
 .month-pop .years button, .month-pop .today {
   flex: none; border: 0; border-radius: 99px; padding: 6px 14px; background: var(--panel); font-size: 14px; font-weight: 500;
 }
+.month-pop .years button { padding: 6px 10px; }
+.month-pop .years button:only-child, .month-pop .years button { flex: 1 0 auto; }
 .month-pop .years button.on { background: var(--ink); color: var(--surface); }
 .month-pop .months { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .month-pop .months button {

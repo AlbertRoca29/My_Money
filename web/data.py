@@ -206,6 +206,14 @@ def alternative(cash_eur):
     return mwr.simulate(snaps, flows, benchmark_prices(), cash_eur, 0.0)
 
 
+@cached(savings=True)
+def alternative_between(cash_eur, start, end):
+    """Like alternative(), but starting on the snapshot dated `start` with the value you had then, so over a
+    window (one year, the last 12 months) both lines begin at the same point and use the same savings."""
+    snaps, flows = snaps_and_flows()
+    return mwr.simulate([s for s in snaps if start <= s[0] <= end], flows, benchmark_prices(), cash_eur, 0.0)
+
+
 # ---------------------------------------------------------------------------
 # Look-through (lookthrough.py)
 # ---------------------------------------------------------------------------

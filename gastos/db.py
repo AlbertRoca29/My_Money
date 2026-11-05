@@ -7,7 +7,8 @@
     Kind           Expense or Income
     Name           what it was ("Supermarket", "Salary"…)
     Category       "🛒 Groceries" for expenses, "💼 Job" for income…
-    Amount         euros, always positive. For income: the amount that reached the account
+    Amount         euros, positive. For income: the amount that reached the account; a negative income is a
+                   loss (say an investment sold below cost) and counts against the month's income
     Gross          income only, optional: the amount before taxes
     Paid by others TRUE when someone else (job, family) paid for it: listed, but left out of every total
     Note           free text
@@ -57,8 +58,10 @@ def clean(body, entry_id=None):
         raise ValueError("Category is required")
     day = date.fromisoformat(body.get("date") or "")  # raises ValueError on a bad date
     amount = float(body.get("amount"))
-    if amount <= 0:
+    if kind == "expense" and amount <= 0:
         raise ValueError("Amount must be more than 0")
+    if amount == 0:
+        raise ValueError("Amount can't be 0")  # income may be negative: a loss
     gross = body.get("gross")
     return {
         "id": entry_id or body.get("id") or new_id(),
@@ -95,7 +98,7 @@ def _entry(row):
         "name": str(name).strip(),
         "category": str(category).strip(),
         "date": gsheet.to_date(day).isoformat(),
-        "amount": abs(_number(amount)),
+        "amount": _number(amount) if kind == "income" else abs(_number(amount)),
         "gross": _number(gross) if kind == "income" else None,
         "paid_by_other": other is True or str(other).strip().upper() == "TRUE",
         "receipt": str(receipt).strip() or None,
