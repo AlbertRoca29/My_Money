@@ -28,7 +28,8 @@ sheet as the online app (DEPLOY.md, step 6, sets that up).
 | File | What it does | Edit it to… |
 |---|---|---|
 | `config.py` | Every setting, with empty defaults for the private ones | change colours or defaults |
-| `settings.py` | What you change from the app itself (⚙ in Portfolio, Settings in Gastos): tab bar, benchmark cash, countries shown… | add a setting |
+| `settings.py` | What you change from the app itself (the ⚙ in the top bar of both halves): tab bar, benchmark cash, show Backtest, countries shown… | add a setting |
+| `static/settings.js`, `settings.css` | The ⚙ sheet itself, shared by both halves (Account, every setting, Data) | change how settings look |
 | `config_local.py` | Your own values (git-ignored): `FUND_SOURCES`, `DIRECT_STOCKS`, `PRICE_SOURCES`, benchmark… | add an ETF/stock |
 | `etfs.py` | ISIN, issuer and strategy bucket of popular European ETFs, to copy into `config_local.py` | add an ETF to the list |
 | `web/pages/overview.py` | Overview page: balance, breakdown, value and growth over time | change or add charts on that page |

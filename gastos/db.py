@@ -150,6 +150,25 @@ def delete(entry_id):
     return int(bool(n))
 
 
+def rename(kind, old_names, new_name):
+    """Give every `kind` entry named in `old_names` the name `new_name` (merging spellings into one).
+    Only the Name cells change. Returns how many entries were renamed."""
+    old = set(old_names)
+    new_name = new_name.strip()
+    if kind not in ("expense", "income") or not new_name:
+        raise ValueError("kind and a new name are required")
+    with gsheet.lock:
+        rows = gsheet.read(TAB)
+        gsheet.check_header(TAB, HEADER, rows[0] if rows else [])
+        cells = {}
+        for n, row in enumerate(rows[1:], start=2):
+            row = list(row) + [""] * (len(HEADER) - len(row))
+            if str(row[2]).strip().lower() == kind and str(row[3]).strip() in old and str(row[3]).strip() != new_name:
+                cells[f"D{n}"] = new_name
+        gsheet.update_cells(TAB, cells)
+    return len(cells)
+
+
 def daily_net():
     """[(date, net savings)] per day, oldest first: income minus expenses, what the portfolio's Returns page
     calls "money put in". Income typed 📈 Investments is left out (it is a return, not new money), and so are

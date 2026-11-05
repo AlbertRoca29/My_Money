@@ -45,13 +45,13 @@
       <a href="#home" data-tab="home">Home</a>
       <a href="#list" data-tab="list">Movements</a>
       <a href="#stats" data-tab="stats">Stats</a>
-      <a href="#settings" data-tab="settings">Settings</a>
     </nav>
     <div class="month" id="month">
       <button class="icon-btn" data-step="-1" aria-label="Previous month">‹</button>
       <span id="month-label"></span>
       <button class="icon-btn" data-step="1" aria-label="Next month">›</button>
     </div>
+    <button class="icon-btn gear" id="open-settings" aria-label="Settings"><svg><use href="#i-settings"/></svg></button>
     <button class="pill accent" id="add-top"><svg class="ico"><use href="#i-plus"/></svg>Add</button>
   </header>
 
@@ -61,9 +61,7 @@
   <nav class="tabbar">
     <a href="#home" data-tab="home"><svg><use href="#i-home"/></svg>Home</a>
     <a href="#list" data-tab="list"><svg><use href="#i-list"/></svg>Movements</a>
-    <button class="fab" id="add" aria-label="Add"><svg><use href="#i-plus"/></svg></button>
     <a href="#stats" data-tab="stats"><svg><use href="#i-stats"/></svg>Stats</a>
-    <a href="#settings" data-tab="settings"><svg><use href="#i-settings"/></svg>Settings</a>
   </nav>
 
   <dialog id="sheet" class="sheet"></dialog>

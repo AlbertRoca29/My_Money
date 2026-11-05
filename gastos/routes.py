@@ -64,6 +64,16 @@ def delete_entry(entry_id):
     return jsonify({"deleted": db.delete(entry_id)})
 
 
+@bp.post("/api/rename")
+def rename_entries():
+    """Merge spellings of a name: {"kind": "expense", "from": ["zara shrt", "ZARA"], "to": "Zara"}."""
+    body = request.get_json(force=True)
+    try:
+        return jsonify({"renamed": db.rename(body.get("kind"), body.get("from") or [], body.get("to") or "")})
+    except (ValueError, TypeError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
 @bp.post("/api/receipts")
 def upload_receipt():
     """Save a photo or PDF of a receipt; returns the name to put in the entry's `receipt`."""

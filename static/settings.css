@@ -1,0 +1,36 @@
+/* The shared settings sheet (settings.js). It only uses the colour variables both apps define. */
+dialog.st {
+  width: 100%; max-width: 560px; max-height: 92vh; max-height: 92dvh; margin: auto auto 0; padding: 0; border: 0;
+  border-radius: 28px 28px 0 0; background: var(--surface); color: var(--ink); overflow: hidden;
+}
+dialog.st::backdrop { background: rgba(25,28,31,.42); }
+dialog.st[open] { animation: st-up .22s ease-out; }
+@keyframes st-up { from { transform: translateY(40px); opacity: .6; } }
+@media (min-width: 640px) { dialog.st { margin: auto; border-radius: 28px; } }
+.st-body { max-height: 92vh; max-height: 92dvh; overflow-y: auto; overscroll-behavior: contain; padding: 22px 20px calc(24px + env(safe-area-inset-bottom)); }
+.st-head { display: flex; justify-content: space-between; align-items: center; }
+.st h2 { font: 600 34px/1.05 var(--display); letter-spacing: -0.04em; margin: 0; }
+.st-x { border: 0; background: var(--panel); width: 40px; height: 40px; border-radius: 50%; cursor: pointer; font-size: 15px; }
+.st-group { margin-top: 18px; }
+.st-group h3 { font: 600 13px var(--text); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 0 0 6px 4px; }
+.st-list { background: var(--panel); border-radius: 18px; padding: 2px 16px; }
+.st-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 0; width: 100%;
+  border: 0; background: none; text-align: left; color: inherit; font: inherit; }
+label.st-row, .st-link { cursor: pointer; }
+.st-row + .st-row { border-top: 1px solid var(--line); }
+.st-row > span:first-child { display: grid; font-weight: 500; flex: 1; min-width: 0; }
+.st-row small { color: var(--muted); font-weight: 400; font-size: 12px; }
+.st-link { color: var(--ink-2); }
+.st-row select, .st-row input[type=number], .st-row input[type=date], .st-row input[type=text] {
+  flex: none; border: 0; outline: 0; background: var(--surface); border-radius: 12px; padding: 8px 12px; font-weight: 500; max-width: 50%; font-size: 16px; }
+.st-row input[type=number] { width: 84px; text-align: right; }
+.st-btn { flex: none; padding: 8px 16px; border-radius: 999px; background: var(--ink); color: var(--surface); font-weight: 500; }
+.st-switch { position: relative; flex: none; width: 46px; height: 28px; }
+.st-switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+.st-switch i { position: absolute; inset: 0; border-radius: 99px; background: #D5DAE0; transition: background .2s; }
+.st-switch i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); transition: transform .2s; }
+.st-switch input:checked + i { background: var(--st-accent); }
+.st-switch input:checked + i::after { transform: translateX(18px); }
+.st-note { font-size: 13px; color: var(--muted); margin: 16px 4px 0; }
+.st-note.bad { color: var(--neg); }

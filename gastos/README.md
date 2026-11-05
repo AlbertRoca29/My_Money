@@ -19,7 +19,7 @@ sort rows there; the app sees it within half a minute.
 | `db.py` | The Movements tab: reading, adding, editing and deleting rows, and the daily savings for Portfolio |
 | `routes.py` | Serves `web/` and the `/api` routes (a blueprint that `../app.py` registers at `/`) |
 | `web/store.js` | The only file that talks to the server (and sends you to sign in when needed) |
-| `web/app.js` | The screens: Home, Movements, Stats, Settings and the add/edit sheet |
+| `web/app.js` | The screens: Home, Movements, Stats, the add/edit sheet and Tidy names (settings are the shared ⚙ sheet, `../static/settings.js`) |
 | `web/style.css` | Same look as My Money, with dark mode |
 | `web/sw.js`, `manifest.webmanifest` | Installable app, works offline with the last data seen |
 

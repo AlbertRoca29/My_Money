@@ -102,7 +102,9 @@ def callback():
 @bp.get("/logout")
 def logout():
     session.clear()
-    return redirect(url_for("auth.login"))
+    resp = redirect(url_for("auth.login"))
+    resp.headers["Clear-Site-Data"] = '"cache", "storage"'  # the phone forgets its offline copies of your data
+    return resp
 
 
 def task(fn):

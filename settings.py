@@ -1,4 +1,4 @@
-"""Settings you change from the app itself (the ⚙ sheet in Portfolio, the Settings tab in Gastos).
+"""Settings you change from the app itself (the ⚙ sheet, the same in Portfolio and Gastos).
 
 They are kept as settings.json in storage (the bucket online, files/ on your computer), so they are the
 same on your phone and your computer. config.py still holds the defaults and everything private.
@@ -20,6 +20,9 @@ FIELDS = [
     dict(name="nav", group="Look", label="Tabs on the phone", type="select", default="top",
          help="Mixed: Gastos at the bottom, Portfolio at the top",
          options=[("mixed", "Mixed"), ("bottom", "Bottom on both"), ("top", "Top on both")]),
+    dict(name="top_min", group="Gastos", label="Biggest expenses: 4th and 5th from (€)", type="number", default=30,
+         min=0, max=10000, step=1, help="Home always lists the top 3; the 4th and 5th only if they're above this"),
+    dict(name="home_trend", group="Gastos", label="12-month trend on Home", type="toggle", default=True),
     dict(name="hide_others", group="Gastos", label="Hide what someone else paid", type="toggle", default=False,
          help="Leaves them out of Movements and Home"),
     dict(name="trends_from", group="Overview", label="Charts start on", type="date", default=config.OVERVIEW_START),
@@ -28,6 +31,8 @@ FIELDS = [
          help=f"The benchmark is “{config.BENCHMARK_NAME} + this much cash”"),
     dict(name="countries", group="Exposure", label="Countries shown", type="number", default=20, min=5, max=60),
     dict(name="companies", group="Exposure", label="Companies shown", type="number", default=20, min=5, max=50),
+    dict(name="show_backtest", group="Backtest", label="Show the Backtest tab", type="toggle", default=False,
+         help="Off hides the tab and skips its nightly download"),
     dict(name="rebalance", group="Backtest", label="Rebalance", type="select", default=config.REBALANCE or "none",
          options=[("ME", "Monthly"), ("QE", "Quarterly"), ("YE", "Yearly"), ("none", "Never (buy & hold)")]),
     dict(name="proxies", group="Backtest", label="Longest history (with stand-ins)", type="toggle", default=False),

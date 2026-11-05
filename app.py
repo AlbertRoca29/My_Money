@@ -42,7 +42,8 @@ app.register_blueprint(gastos)  # "/" and its /api/entries, /api/receipts… rou
 @app.get("/portfolio")
 def index():
     """The single HTML page. Navigation between pages happens in the browser (static/app.js)."""
-    return render_template("index.html", pages={k: m.TITLE for k, m in PAGES.items()})
+    hidden = [] if settings.get("show_backtest") else ["backtest"]  # Settings > Backtest
+    return render_template("index.html", pages={k: m.TITLE for k, m in PAGES.items()}, hidden=hidden)
 
 
 @app.get("/plotly.min.js")
@@ -109,8 +110,10 @@ def refresh():
     """Run every night by Cloud Scheduler: download today's prices and fund holdings and work out the
     heavy pages, so they open at once during the day. Each part can fail without stopping the others."""
     done = {}
-    for name, job in [("benchmark", data.benchmark_prices), ("look-through", data.lookthrough_result),
-                      ("backtest", lambda: data.backtest_result(config.REBALANCE, False))]:
+    jobs = [("benchmark", data.benchmark_prices), ("look-through", data.lookthrough_result)]
+    if settings.get("show_backtest"):
+        jobs.append(("backtest", lambda: data.backtest_result(config.REBALANCE, False)))
+    for name, job in jobs:
         try:
             job()
             done[name] = "ok"

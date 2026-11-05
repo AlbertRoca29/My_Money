@@ -41,7 +41,11 @@ function fitPhone(fig) {
 // fetch, except that a signed-out (or expired) session goes back to the sign-in page
 async function api(url, options) {
   const r = await fetch(url, options);
-  if (r.status === 401) { location.href = "/login?next=/portfolio"; throw new Error("Signing in…"); }
+  if (r.status === 401) {   // signed out: forget the copies kept on this phone too
+    try { localStorage.removeItem("gastos.entries"); await Promise.all((await caches.keys()).map((k) => caches.delete(k))); } catch {}
+    location.href = "/login?next=/portfolio";
+    throw new Error("Signing in…");
+  }
   return r;
 }
 
@@ -63,18 +67,42 @@ async function load() {
   if (tab) tabs.scrollTo({ left: tab.offsetLeft - (tabs.clientWidth - tab.offsetWidth) / 2, behavior: "smooth" });
   const token = ++loadToken;
   showSkeleton();
-  let res;
+  let res, offline = false;
   try {
     // phone=1: the Python pages then stack side-by-side charts and show fewer rows
     const query = new URLSearchParams(params);
     if (PHONE.matches) query.set("phone", "1");
-    const r = await api(`/api/page/${page}?${query}`);
-    res = await r.json();
+    ({ res, offline } = await fetchPage(`/api/page/${page}?${query}`));
   } catch (e) {
     res = { error: `Could not reach the server (${e.message}). Is app.py running?` };
   }
   if (token !== loadToken) return; // the user already moved on to another page
+  setOffline(offline);
   render(page, params, res);
+}
+
+// Every page that loads is kept on the phone; with no connection the last copy is shown instead.
+const PAGE_CACHE = "portfolio-pages";
+async function fetchPage(url) {
+  try {
+    const r = await api(url);
+    const res = await r.json();
+    if (r.ok && window.caches) caches.open(PAGE_CACHE).then((c) => c.put(url, new Response(JSON.stringify(res)))).catch(() => {});
+    return { res, offline: false };
+  } catch (e) {
+    if (e.message === "Signing in…") throw e;
+    const saved = window.caches && await caches.open(PAGE_CACHE).then((c) => c.match(url)).catch(() => null);
+    if (!saved) throw new Error("offline, and this view hasn't been opened before");
+    return { res: await saved.json(), offline: true };
+  }
+}
+
+// Offline you can look but not add: a snapshot needs the server.
+function setOffline(offline) {
+  const b = $("#banner");
+  b.hidden = !offline;
+  b.textContent = offline ? "Offline — showing the last data seen. Snapshots can't be added until you're back online." : "";
+  $("#new-snapshot").disabled = offline;
 }
 
 function showSkeleton() {
@@ -440,57 +468,32 @@ appBtn.addEventListener("click", (e) => {
 document.addEventListener("click", (e) => { if (!e.target.closest(".switcher")) closeApps(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeApps(); });
 
-// ---------- Settings (settings.py; Gastos shows its own group in its Settings tab) ----------
+// ---------- Settings (settings.py) ----------
 function applyNav(nav) {
   document.documentElement.dataset.nav = nav || "top";
   try { localStorage.setItem("mymoney.nav", nav || "top"); } catch {}
 }
 
-function settingRow(f, v) {
-  const text = `<span>${esc(f.label)}${f.help ? `<small>${esc(f.help)}</small>` : ""}</span>`;
-  const n = `data-setting="${esc(f.name)}"`;
-  if (f.type === "toggle") return `<label class="set-row">${text}<span class="field switch"><input type="checkbox" ${n} ${v ? "checked" : ""}><i></i></span></label>`;
-  if (f.type === "select") return `<label class="set-row">${text}<select ${n}>${f.options.map((o) =>
-    `<option value="${esc(o.value)}" ${o.value === String(v) ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select></label>`;
-  if (f.type === "number") return `<label class="set-row">${text}<input type="number" ${n} value="${esc(v)}" min="${f.min ?? ""}" max="${f.max ?? ""}" step="${f.step ?? 1}" inputmode="decimal"></label>`;
-  return `<label class="set-row">${text}<input type="${esc(f.type)}" ${n} value="${esc(v)}"></label>`;
-}
-
-async function openSettings() {
-  const { values, fields } = await (await api("/api/settings")).json();
-  const groups = [...new Set(fields.map((f) => f.group))].filter((g) => g !== "Gastos");
-  $("#settings-body").innerHTML = groups.map((g) => `<section class="set-group"><h3>${esc(g)}</h3><div class="set-list">
-    ${fields.filter((f) => f.group === g).map((f) => settingRow(f, values[f.name])).join("")}</div></section>`).join("");
-  $("#settings-backdrop").hidden = false;
-  document.body.style.overflow = "hidden";
-}
-
-function closeSettings() {
-  $("#settings-backdrop").hidden = true;
-  document.body.style.overflow = "";
-}
-
-$("#settings-body").addEventListener("change", async (e) => {
-  const name = e.target.dataset.setting;
-  if (!name) return;
-  const value = e.target.type === "checkbox" ? e.target.checked : e.target.value;
-  if (name === "nav") applyNav(value);
-  const res = await (await api("/api/settings", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [name]: value }),
-  })).json();
-  if (res.error) return toast(res.error, true);
-  toast("Saved");
-  // drop the page's own value for this setting (if any) so the saved one shows
-  const { page, params } = route();
-  if (params.has(name)) { params.delete(name); go(page, params); } else load();
+// ⚙: the settings sheet shared with Gastos (settings.js)
+$("#open-settings").addEventListener("click", async () => {
+  try {
+    const { openSettings } = await import("/static/settings.js");
+    openSettings({
+      app: "portfolio", accent: "var(--blue)",
+      onChange(name, value) {
+        if (name === "nav") applyNav(value);
+        if (name === "show_backtest") document.querySelectorAll("[data-page=backtest]").forEach((a) => (a.hidden = !value));
+        // drop the page's own value for this setting (if any) so the saved one shows
+        const { page, params } = route();
+        if (params.has(name)) { params.delete(name); go(page, params); } else load();
+      },
+    });
+  } catch (e) { toast(e.message, true); }
 });
-$("#open-settings").addEventListener("click", openSettings);
-$("#settings-close").addEventListener("click", closeSettings);
-$("#settings-backdrop").addEventListener("click", (e) => { if (e.target.id === "settings-backdrop") closeSettings(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#settings-backdrop").hidden) closeSettings(); });
 api("/api/settings").then((r) => r.json()).then((s) => applyNav(s.values.nav)).catch(() => {});
 
 // ---------- Start ----------
 window.addEventListener("hashchange", load);
+window.addEventListener("online", load);
 PHONE.addEventListener("change", load); // redraw the charts when crossing the phone / desktop width
 load();

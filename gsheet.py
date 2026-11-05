@@ -105,6 +105,15 @@ def update(tab, cells, new_rows):
     forget(tab)
 
 
+def update_cells(tab, cells):
+    """Change several single cells at once: {"D5": "Zara", "D9": "Zara"}. Nothing else in the sheet is touched."""
+    if not cells:
+        return
+    _call("POST", "/values:batchUpdate", json={"valueInputOption": "USER_ENTERED", "data": [
+        {"range": f"'{tab}'!{cell}", "values": [[value]]} for cell, value in cells.items()]})
+    forget(tab)
+
+
 def delete_row(tab, index):
     """Remove one row (0-based, the header being row 0)."""
     _batch([{"deleteDimension": {"range": {"sheetId": tabs()[tab], "dimension": "ROWS",

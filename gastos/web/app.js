@@ -12,7 +12,7 @@ const state = {
   month: monthKey(new Date()),   // "2026-11"
   list: { q: "", kind: "all", cat: "" },
   period: "12m",                 // Stats: "12m" (last 12 months) or a year, "2025"
-  settings: {},                  // ../../settings.py values (hide_others, nav…)
+  settings: {},                  // ../../settings.py values (hide_others, top_min, nav…)
 };
 
 // ---------------------------------------------------------------- helpers
@@ -30,6 +30,8 @@ function monthName(key, opts = { month: "long", year: "numeric" }) {
   const [y, m] = key.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString("en-GB", opts);
 }
+// "Nov 26": short month and two-digit year, for the month picker
+function monthShort(key) { return `${monthName(key, { month: "short" })} ${key.slice(2, 4)}`; }
 function dayName(iso) {
   const d = new Date(iso + "T00:00"), today = new Date();
   const diff = Math.round((new Date(today.toDateString()) - d) / 864e5);
@@ -116,14 +118,25 @@ function catBars(pairs, total) {
 }
 
 // Grouped bars (income vs spent), one slot per month, stretched to the card's width. Tapping a month opens it on Home.
+// Gridline values 0..top, at most 4 steps, on round numbers (the axis never goes below €500, so a quiet month stays small).
+function niceTicks(max) {
+  const raw = Math.max(max, 500) / 3, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((k) => k * mag).find((s) => s >= raw);
+  return Array.from({ length: Math.ceil(Math.max(max, 500) / step) + 1 }, (_, i) => i * step);
+}
+const compact = (v) => (v >= 1000 ? `${+(v / 1000).toFixed(1)}k` : String(v));
+
 function monthChart(months) {
-  const slot = 30, bw = 9, H = 170, pad = { t: 10, b: 24 };
-  const W = slot * months.length;
-  const max = Math.max(1, ...months.flatMap((m) => [m.income, m.spent]));
+  const slot = 30, bw = 9, H = 170, pad = { t: 10, b: 24, l: 26 };
+  const W = pad.l + slot * months.length;
+  const ticks = niceTicks(Math.max(...months.flatMap((m) => [m.income, m.spent])));
+  const max = ticks.at(-1);
   const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - v / max);
   const now = monthKey(new Date());
+  const grid = ticks.map((v) => `<line x1="${pad.l}" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/>
+    <text x="${pad.l - 5}" y="${y(v) + 3}" text-anchor="end">${compact(v)}</text>`).join("");
   const bars = months.map((m, i) => {
-    const x = i * slot + slot / 2;
+    const x = pad.l + i * slot + slot / 2;
     return `<g class="mbar" data-month="${m.key}">
       <rect class="hit" x="${x - slot / 2}" y="0" width="${slot}" height="${H}" rx="6" fill="transparent"/>
       <rect x="${x - bw - 1}" y="${y(m.income)}" width="${bw}" height="${H - pad.b - y(m.income)}" rx="2" fill="var(--pos)"/>
@@ -133,8 +146,30 @@ function monthChart(months) {
     </g>`;
   }).join("");
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Income and spending per month">
-    <line x1="0" x2="${W}" y1="${H - pad.b}" y2="${H - pad.b}" stroke="var(--line)"/>${bars}</svg>
+    ${grid}${bars}</svg>
     <div class="legend"><span><i style="background:var(--pos)"></i>Income</span><span><i style="background:var(--neg)"></i>Spent</span><span class="muted">Tap a month to open it</span></div>`;
+}
+
+// Twelve small bars of monthly spending, ending at the month on screen (that one in orange). Tap a bar to open it.
+function trendChart(endKey) {
+  const keys = Array.from({ length: 12 }, (_, i) => shiftMonth(endKey, i - 11));
+  const spent = keys.map((k) => totals(inMonth(k)).spent);
+  const active = spent.filter((v) => v > 0);
+  const avg = active.length ? active.reduce((a, b) => a + b, 0) / active.length : 0;
+  const slot = 26, bw = 16, H = 96, base = H - 18, max = Math.max(1, ...spent);
+  const bars = keys.map((k, i) => {
+    const h = Math.max(spent[i] ? 3 : 0, (base - 6) * (spent[i] / max)), x = i * slot + (slot - bw) / 2;
+    return `<g class="mbar" data-month="${k}">
+      <rect class="hit" x="${i * slot}" y="0" width="${slot}" height="${H}" rx="6" fill="transparent"/>
+      <rect x="${x}" y="${base - h}" width="${bw}" height="${h}" rx="4" fill="${k === endKey ? "var(--accent)" : "#CDD3DA"}"/>
+      <text x="${i * slot + slot / 2}" y="${H - 4}" text-anchor="middle" class="${k === endKey ? "cur" : ""}">${monthName(k, { month: "narrow" })}</text>
+      <title>${monthName(k)} — ${eur0(spent[i])}</title></g>`;
+  }).join("");
+  const ay = base - (base - 6) * (avg / max);
+  return `<svg class="chart trend" viewBox="0 0 ${slot * 12} ${H}" role="img" aria-label="Spending per month">
+    <line x1="0" x2="${slot * 12}" y1="${base}" y2="${base}" stroke="var(--line)"/>
+    ${avg ? `<line x1="0" x2="${slot * 12}" y1="${ay}" y2="${ay}" stroke="var(--muted)" stroke-dasharray="3 3"/>` : ""}${bars}</svg>
+    <div class="legend"><span>Average <b>${eur0(avg)}</b> a month</span><span class="muted">Tap a bar to open it</span></div>`;
 }
 
 // The month's spending as one stacked bar, then the biggest categories (the rest summed as "Other").
@@ -144,6 +179,38 @@ function catStack(pairs, total) {
   const parts = [...top.map(([c, v]) => [label(c), v, colorOf(c)]), ...(rest ? [["Other", rest, "#C9CED4"]] : [])];
   return `<div class="stack">${parts.map(([, v, c]) => `<i style="flex:${v};background:${c}"></i>`).join("")}</div>
     <div class="legend-list">${parts.map(([n, v, c]) => `<div><i style="background:${c}"></i><span>${esc(n)}</span><b>${eur0(v)}</b><em>${pct(v / total)}</em></div>`).join("")}</div>`;
+}
+
+// Names are compared without case, accents, punctuation or emoji: "T-SHIRT 👕" and "t shirt" are the same.
+const norm = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+function distance(a, b) {
+  if (Math.abs(a.length - b.length) > 2) return 3;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+// Too short to guess ("bus" vs "bar"), so only longer names count as near-misses of each other.
+const similar = (a, b) => a === b || (Math.min(a.length, b.length) >= 5 && distance(a, b) <= (Math.min(a.length, b.length) >= 9 ? 2 : 1));
+
+// Names of one kind with how many entries use each, grouped when they look like the same thing.
+function nameGroups(kind) {
+  const counts = new Map();
+  for (const e of state.entries) if (e.kind === kind) counts.set(e.name, (counts.get(e.name) || 0) + 1);
+  const names = [...counts].map(([name, n]) => ({ name, n, key: norm(name) })).filter((x) => x.key);
+  const parent = names.map((_, i) => i);
+  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  for (let i = 0; i < names.length; i++) for (let j = i + 1; j < names.length; j++)
+    if (similar(names[i].key, names[j].key)) parent[find(j)] = find(i);
+  const groups = new Map();
+  names.forEach((x, i) => groups.set(find(i), [...(groups.get(find(i)) || []), x]));
+  return {
+    all: names.sort((a, b) => b.n - a.n),
+    similar: [...groups.values()].filter((g) => g.length > 1).map((g) => g.sort((a, b) => b.n - a.n)),
+  };
 }
 
 const catOptions = (kind, cur) => categories(kind).map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("");
@@ -162,7 +229,10 @@ const views = {
     const vs = avg ? (t.spent - avg) / avg : null;
     const avgLabel = upTo === "31" ? "the 6-month average" : `usual by day ${Number(upTo)}`;
     const byCat = sumBy(month.filter((e) => e.kind === "expense" && counts(e)), (e) => e.category);
-    const latest = month.filter(shown).slice(0, 5);
+    // The 3 biggest expenses; a 4th and 5th only when they are above the limit in Settings.
+    const minTop = Number(state.settings.top_min ?? 30);
+    const top = month.filter((e) => e.kind === "expense" && counts(e)).sort((a, b) => b.amount - a.amount)
+      .filter((e, i) => i < 3 || e.amount > minTop).slice(0, 5);
     return `
       <div class="wide">
         <section class="hero">
@@ -177,9 +247,10 @@ const views = {
       </div>
       <section class="card"><h2>Where it went</h2>${catStack(byCat, t.spent)}</section>
       <section class="card">
-        <h2>Latest <a href="#list" class="link">See all</a></h2>
-        ${latest.length ? `<div class="rows">${latest.map(row).join("")}</div>` : `<p class="empty">Nothing this month yet.</p>`}
-      </section>`;
+        <h2>Biggest expenses <a href="#list" class="link">See all</a></h2>
+        ${top.length ? `<div class="rows">${top.map(row).join("")}</div>` : `<p class="empty">Nothing spent this month yet.</p>`}
+      </section>
+      ${state.settings.home_trend === false ? "" : `<section class="card"><h2>Last 12 months</h2>${trendChart(state.month)}</section>`}`;
   },
 
   list() {
@@ -249,39 +320,7 @@ const views = {
       </section>
       <section class="card"><h2>Income sources</h2>${catBars(income, incomeTotal)}</section>`;
   },
-
-  settings() {
-    const first = state.entries.at(-1)?.date, last = state.entries[0]?.date;
-    const fields = (state.settingsFields || []).filter((f) => f.group === "Gastos" || f.group === "Look");
-    return `
-      ${fields.length ? `<section class="card"><h2>Preferences</h2><div class="prefs">${fields.map(prefField).join("")}</div>
-        <p class="muted small" style="margin-top:8px">The portfolio's settings are behind the ⚙ button there.</p></section>` : ""}
-      <section class="card"><h2>Data</h2>
-        <p>${state.entries.length} movements${first ? `, from ${esc(first)} to ${esc(last)}` : ""}.</p>
-        <div class="actions">
-          ${state.info?.sheet ? `<a class="pill dark" href="${esc(state.info.sheet)}" target="_blank" rel="noopener">Open the Google Sheet</a>` : ""}
-          <a class="pill" href="${store.exportUrl}" download>Export CSV</a>
-        </div>
-        <p class="muted small">Everything lives in the Movements tab of that sheet. You can fix or sort rows there;
-          keep the first row (the column names) as it is. Changes show up here within half a minute.</p>
-      </section>
-      <section class="card"><h2>Account</h2>
-        <p>${state.info?.email ? `Signed in as <b>${esc(state.info.email)}</b>.` : "Running on your computer, no sign-in."}</p>
-        ${state.info?.email ? `<div class="actions"><a class="pill" href="/logout">Sign out</a></div>` : ""}
-        <p class="muted small">On your phone, open this page and use <b>Add to Home Screen</b>: it opens like an app
-          and shows the last data it saw when offline.</p>
-      </section>`;
-  },
 };
-
-function prefField(f) {
-  const v = state.settings[f.name];
-  const text = `<span>${esc(f.label)}${f.help ? `<small>${esc(f.help)}</small>` : ""}</span>`;
-  if (f.type === "toggle") return `<label class="pref">${text}<span class="switch-ui"><input type="checkbox" data-setting="${f.name}" ${v ? "checked" : ""}><i></i></span></label>`;
-  if (f.type === "select") return `<label class="pref">${text}<select data-setting="${f.name}">${f.options.map((o) =>
-    `<option value="${esc(o.value)}" ${o.value === v ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select></label>`;
-  return "";
-}
 
 function applyNav() {
   const nav = state.settings.nav || "top";
@@ -291,8 +330,7 @@ function applyNav() {
 
 async function loadSettings() {
   try {
-    const { values, fields } = await store.settings();
-    state.settings = values; state.settingsFields = fields;
+    state.settings = (await store.settings()).values;
     applyNav();
     render();
   } catch {}
@@ -320,9 +358,10 @@ function openSheet(entry = null) {
   const lastCat = (name) => state.entries.find((x) => x.kind === kind && x.name.toLowerCase() === name.trim().toLowerCase())?.category;
 
   function suggestions(typed) {
-    const q = typed.trim().toLowerCase();
+    const q = norm(typed);
     const all = names();
-    const hits = q ? all.filter((n) => n.toLowerCase().includes(q) && n.toLowerCase() !== q) : all;
+    // names that contain what you typed, or are one or two letters away from it (a typo of a name you already use)
+    const hits = q ? all.filter((n) => norm(n) !== q && (norm(n).includes(q) || (q.length >= 4 && distance(norm(n), q) <= 2))) : all;
     return hits.slice(0, 8).map((n) => `<button type="button" data-name="${esc(n)}">${esc(n)}</button>`).join("");
   }
   const showCat = () => {
@@ -356,13 +395,21 @@ function openSheet(entry = null) {
       <label class="receipt">📎 ${receiptFile ? esc(receiptFile.name) : url ? `<a href="${url}" target="_blank">View file</a> · replace` : receipt ? "File kept in Google Drive · replace" : attach}
         <input type="file" name="receipt" accept="image/*,application/pdf" hidden></label>
       <p class="form-error" hidden></p>
-      <div class="sheet-actions">
-        ${entry ? `<button type="button" class="pill danger" id="del">Delete</button>` : ""}
-        <button type="button" class="pill" id="cancel">Cancel</button>
-        <button type="submit" class="pill dark" id="save">${entry ? "Save" : "Add"}</button>
-      </div>
+      <div class="sheet-actions"></div>
     </form>`;
     showCat();
+    actions(false);
+  }
+
+  // The bottom buttons; "Delete" swaps them for an inline question instead of a browser popup.
+  function actions(confirming) {
+    $(".sheet-actions", dlg).innerHTML = confirming
+      ? `<p class="ask">Delete “${esc(e.name)}”?<small>This can't be undone.</small></p>
+         <button type="button" class="pill" id="keep">Keep</button>
+         <button type="button" class="pill solid-danger" id="del-yes">Delete</button>`
+      : `${entry ? `<button type="button" class="pill danger" id="del">Delete</button>` : ""}
+         <button type="button" class="pill" id="cancel">Cancel</button>
+         <button type="submit" class="pill dark" id="save">${entry ? "Save" : "Add"}</button>`;
   }
 
   // Keep what was typed when the sheet redraws (switching kind, picking a receipt).
@@ -390,9 +437,12 @@ function openSheet(entry = null) {
       input.value = btn.dataset.name;
       input.dispatchEvent(new Event("input", { bubbles: true }));
     } else if (btn.id === "cancel") dlg.close();
-    else if (btn.id === "del" && confirm(`Delete “${e.name}”?`)) {
+    else if (btn.id === "del") actions(true);
+    else if (btn.id === "keep") actions(false);
+    else if (btn.id === "del-yes") {
+      btn.disabled = true;
       try { await store.deleteEntry(e.id); dlg.close(); toast("Deleted"); await reload(); }
-      catch (err) { toast(err.message, true); }
+      catch (err) { toast(err.message, true); btn.disabled = false; }
     }
   };
   dlg.oninput = (ev) => {
@@ -418,7 +468,9 @@ function openSheet(entry = null) {
     try {
       if (receiptFile) receipt = await store.uploadReceipt(receiptFile);
       const gross = kind === "income" && e.gross ? parseAmount(e.gross) : null;
-      await store.saveEntry({ id: entry?.id, kind, name: e.name, category, date: e.date, amount, gross,
+      // A new entry reuses the spelling you already have ("zara" -> "Zara"), so names don't drift apart
+      const known = entry ? null : state.entries.find((x) => x.kind === kind && norm(x.name) === norm(e.name));
+      await store.saveEntry({ id: entry?.id, kind, name: known ? known.name : e.name, category, date: e.date, amount, gross,
         paid_by_other: kind === "expense" && e.paid_by_other, receipt, note: e.note });
       dlg.close();
       toast(entry ? "Saved" : `Added ${eur(amount)}`);
@@ -434,6 +486,82 @@ function openSheet(entry = null) {
   if (!entry) $("[name=amount]", dlg).focus();
 }
 
+// ---------------------------------------------------------------- tidy names
+// Settings > Names: merge spellings of the same thing, or rename one. Uses the same bottom sheet.
+function openTidy(kind = "expense") {
+  const dlg = $("#sheet");
+  let renaming = null;   // a name being renamed, or null
+  let q = "";
+  const pick = new Map(); // group index -> chosen name
+
+  function draw() {
+    const { all, similar: groups } = nameGroups(kind);
+    const needle = norm(q);
+    const list = all.filter((x) => !needle || x.key.includes(needle)).sort((a, b) => a.name.localeCompare(b.name));
+    dlg.innerHTML = `<div class="sheet-body tidy">
+      <div class="grab"></div>
+      <div class="seg">
+        <button type="button" data-k="expense" class="${kind === "expense" ? "on" : ""}">Expenses</button>
+        <button type="button" data-k="income" class="${kind === "income" ? "on" : ""}">Income</button>
+      </div>
+      ${renaming !== null ? `<div class="rename"><p><b>${esc(renaming)}</b> → <small>every entry with this name changes; if the new name exists, they merge</small></p>
+          <input id="newname" value="${esc(renaming)}" autocomplete="off" autocapitalize="sentences" spellcheck="false">
+          <div class="sheet-actions"><button type="button" class="pill" id="rn-cancel">Back</button><button type="button" class="pill dark" id="rn-save">Rename</button></div></div>` : `
+      <h3>Looks like the same thing</h3>
+      ${groups.length ? groups.map((g, gi) => {
+        const target = pick.get(gi) ?? g[0].name;
+        return `<div class="merge"><div class="names">${g.map((x) => `<button type="button" class="nm ${x.name === target ? "on" : ""}" data-g="${gi}" data-nm="${esc(x.name)}">${esc(x.name)} <small>×${x.n}</small></button>`).join("")}</div>
+          <button type="button" class="pill dark" data-merge="${gi}">Merge into “${esc(target)}”</button></div>`;
+      }).join("") : `<p class="empty">Nothing looks duplicated.</p>`}
+      <h3>All names <small>${all.length}</small></h3>
+      <input id="tq" type="search" placeholder="Search names…" value="${esc(q)}" autocomplete="off">
+      <div class="all">${list.map((x) => `<button type="button" class="nm" data-rename="${esc(x.name)}">${esc(x.name)} <small>×${x.n}</small></button>`).join("") || `<p class="empty">No names.</p>`}</div>
+      <p class="muted small">Tap a name to rename it. In a group, tap the spelling you want to keep, then Merge.</p>
+      <div class="sheet-actions"><button type="button" class="pill dark" id="tidy-done">Done</button></div>`}
+    </div>`;
+  }
+
+  async function apply(from, to) {
+    try {
+      const { renamed } = await store.renameNames(kind, from, to);
+      toast(`${renamed} ${renamed === 1 ? "entry" : "entries"} renamed`);
+      renaming = null;
+      await reload();
+      draw();
+    } catch (err) { toast(err.message, true); }
+  }
+
+  dlg.onclick = (ev) => {
+    if (ev.target === dlg) return dlg.close();
+    const btn = ev.target.closest("button");
+    if (!btn) return;
+    const { k, g, nm, merge, rename } = btn.dataset;
+    if (k) { kind = k; renaming = null; draw(); }
+    else if (g !== undefined) { pick.set(Number(g), nm); draw(); }
+    else if (merge !== undefined) {
+      const group = nameGroups(kind).similar[Number(merge)];
+      const to = pick.get(Number(merge)) ?? group[0].name;
+      apply(group.map((x) => x.name).filter((n) => n !== to), to);
+    } else if (rename !== undefined) { renaming = rename; draw(); $("#newname", dlg).select(); }
+    else if (btn.id === "rn-cancel") { renaming = null; draw(); }
+    else if (btn.id === "rn-save") {
+      const to = $("#newname", dlg).value.trim();
+      if (to && to !== renaming) apply([renaming], to); else { renaming = null; draw(); }
+    } else if (btn.id === "tidy-done") dlg.close();
+  };
+  dlg.oninput = (ev) => {
+    if (ev.target.id !== "tq") return;
+    q = ev.target.value;
+    const pos = ev.target.selectionStart;
+    draw();
+    const el = $("#tq", dlg); el.focus(); el.setSelectionRange(pos, pos);
+  };
+  dlg.onchange = null;
+  dlg.onsubmit = null;
+  draw();
+  dlg.showModal();
+}
+
 // ---------------------------------------------------------------- routing
 function route() { return (location.hash.slice(1) || "home").split("?")[0]; }
 
@@ -442,8 +570,9 @@ function render() {
   $("#view").innerHTML = views[r]();
   $("#view").dataset.view = r;
   document.querySelectorAll("[data-tab]").forEach((a) => a.classList.toggle("active", a.dataset.tab === r));
-  $("#month").hidden = r === "settings" || r === "stats";
-  $("#month-label").textContent = monthName(state.month, { month: "short", year: "numeric" });
+  $("#month").hidden = r === "stats";
+  $("#month-label").textContent = monthShort(state.month);
+  $("#month [data-step='1']").disabled = state.month >= monthKey(new Date());
 }
 
 async function reload() {
@@ -473,7 +602,11 @@ $("#view").addEventListener("click", async (ev) => {
     return render();
   }
   const bar = ev.target.closest(".mbar");
-  if (bar) { state.month = bar.dataset.month; location.hash = "home"; return; }
+  if (bar) {
+    state.month = bar.dataset.month;
+    if (route() === "home") render(); else location.hash = "home";
+    return;
+  }
 });
 $("#view").addEventListener("input", (ev) => {
   if (ev.target.id !== "q") return;
@@ -482,15 +615,8 @@ $("#view").addEventListener("input", (ev) => {
   render();
   const q = $("#q"); q.focus(); q.setSelectionRange(pos, pos);
 });
-$("#view").addEventListener("change", async (ev) => {
-  if (ev.target.id === "cat") { state.list.cat = ev.target.value; return render(); }
-  const name = ev.target.dataset.setting;
-  if (!name) return;
-  const value = ev.target.type === "checkbox" ? ev.target.checked : ev.target.value;
-  state.settings[name] = value;
-  if (name === "nav") applyNav();
-  try { state.settings = await store.saveSettings({ [name]: value }); toast("Saved"); }
-  catch (err) { toast(err.message, true); }
+$("#view").addEventListener("change", (ev) => {
+  if (ev.target.id === "cat") { state.list.cat = ev.target.value; render(); }
 });
 
 // App switcher menu (top left)
@@ -503,15 +629,51 @@ appBtn.addEventListener("click", (ev) => {
 });
 document.addEventListener("click", (ev) => { if (!ev.target.closest(".switcher")) closeApps(); });
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeApps(); });
+// Months go from the first one with data up to the current month, never into the future.
+function stepMonth(step) {
+  const next = shiftMonth(state.month, step);
+  if (next > monthKey(new Date())) return;
+  state.month = next;
+  render();
+  $("#view").animate([{ opacity: 0, transform: `translateX(${step * 24}px)` }, { opacity: 1, transform: "none" }], { duration: 180, easing: "ease-out" });
+}
 $("#month").addEventListener("click", (ev) => {
   const step = Number(ev.target.dataset.step);
-  if (step) { state.month = shiftMonth(state.month, step); render(); }
+  if (step) stepMonth(step);
 });
-$("#add").addEventListener("click", () => openSheet());
+
+// Swipe left / right on Home and Movements for the next / previous month.
+let swipe = null;
+document.addEventListener("touchstart", (ev) => {
+  const ok = ev.touches.length === 1 && ["home", "list"].includes(route())
+    && !ev.target.closest("dialog, .chips, .sugg, input, select, .app-menu");
+  swipe = ok ? { x: ev.touches[0].clientX, y: ev.touches[0].clientY, t: Date.now() } : null;
+}, { passive: true });
+document.addEventListener("touchend", (ev) => {
+  if (!swipe) return;
+  const dx = ev.changedTouches[0].clientX - swipe.x, dy = ev.changedTouches[0].clientY - swipe.y;
+  const quick = Date.now() - swipe.t < 700;
+  swipe = null;
+  if (quick && Math.abs(dx) > 70 && Math.abs(dx) > 2 * Math.abs(dy)) stepMonth(dx < 0 ? 1 : -1);
+}, { passive: true });
 $("#add-top").addEventListener("click", () => openSheet());
+// ⚙: the settings sheet shared with Portfolio (../../static/settings.js)
+$("#open-settings").addEventListener("click", async () => {
+  try {
+    const { openSettings } = await import("/static/settings.js");
+    openSettings({
+      app: "gastos", accent: "var(--accent)",
+      actions: [{ label: "Tidy names", help: "Merge “T-SHIRT 👕”, “t shirt” and “zara shrt” into one name, or fix a typo everywhere", run: () => openTidy() }],
+      onChange(name, value, values) {
+        state.settings = values;
+        if (name === "nav") applyNav();
+        render();
+      },
+    });
+  } catch (err) { toast(err.message, true); }
+});
 window.addEventListener("hashchange", () => { render(); scrollTo(0, 0); });
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
-store.info().then((i) => { state.info = i; if (route() === "settings") render(); }).catch(() => {});
 loadSettings();
 reload();

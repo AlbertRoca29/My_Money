@@ -41,13 +41,14 @@
     </div>
     <nav class="tabs" id="tabs">
       {% for key, title in pages.items() %}
-      <a href="#/{{ key }}" data-page="{{ key }}">{{ title }}</a>
+      <a href="#/{{ key }}" data-page="{{ key }}"{{ ' hidden' if key in hidden }}>{{ title }}</a>
       {% endfor %}
     </nav>
     <button class="icon-btn gear" id="open-settings" aria-label="Settings"><svg><use href="#i-settings"/></svg></button>
     <button class="pill pill-dark" id="new-snapshot"><svg class="ico"><use href="#i-plus"/></svg>Snapshot</button>
   </header>
 
+  <div id="banner" class="banner" hidden></div>
   <main id="app">
     <section class="hero" id="hero"></section>
     <div class="controls" id="controls"></div>
@@ -76,22 +77,10 @@
     </aside>
   </div>
 
-  <!-- Settings: a sheet drawn by app.js from /api/settings (settings.py) -->
-  <div class="sheet-backdrop" id="settings-backdrop" hidden>
-    <aside class="sheet settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <div class="sheet-head">
-        <h2 id="settings-title">Settings</h2>
-        <button class="icon-btn" id="settings-close" aria-label="Close">✕</button>
-      </div>
-      <div id="settings-body"></div>
-      <p class="muted settings-note">Saved for every device. Changes apply as soon as you make them.</p>
-    </aside>
-  </div>
-
   <!-- Bottom tab bar on phones, when ⚙ > Look says so -->
   <nav class="tabbar" id="tabbar">
     {% for key, title in pages.items() %}
-    <a href="#/{{ key }}" data-page="{{ key }}"><svg><use href="#i-{{ key }}"/></svg>{{ title }}</a>
+    <a href="#/{{ key }}" data-page="{{ key }}"{{ ' hidden' if key in hidden }}><svg><use href="#i-{{ key }}"/></svg>{{ title }}</a>
     {% endfor %}
   </nav>
 

@@ -9,12 +9,19 @@ async function call(method, url, body) {
     body: body instanceof FormData ? body : body && JSON.stringify(body),
   });
   if (res.status === 401) {                      // signed out (or the sign-in expired): sign in again
+    clearLocal();
     location.href = "/login";
     throw new Error("Signing in…");
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `${res.status} ${res.statusText}`);
   return data;
+}
+
+// Forget everything kept on this device (the entries and the portfolio pages): on sign-out.
+export async function clearLocal() {
+  try { localStorage.removeItem(CACHE_KEY); } catch {}
+  try { await Promise.all((await caches.keys()).map((k) => caches.delete(k))); } catch {}
 }
 
 // Every entry, newest first. Falls back to the last copy seen when offline.
@@ -33,6 +40,9 @@ export async function listEntries() {
 
 export const saveEntry = (entry) =>
   entry.id ? call("PUT", `api/entries/${entry.id}`, entry) : call("POST", "api/entries", entry);
+
+// Merge spellings: every `kind` entry named in `from` gets the name `to`.
+export const renameNames = (kind, from, to) => call("POST", "api/rename", { kind, from, to });
 
 export const deleteEntry = (id) => call("DELETE", `api/entries/${id}`);
 
@@ -73,10 +83,5 @@ export async function uploadReceipt(file) {
 // A URL to show a stored receipt, or null for old ones that stayed in Google Drive.
 export const receiptUrl = (name) => (name && !name.includes("/") ? `receipts/${name}` : null);
 
-export const info = () => call("GET", "api/info");
-
-export const exportUrl = "api/export.csv";
-
-// Settings shared with the portfolio half (../../settings.py): {values, fields}.
+// Settings shared with the portfolio half (../../settings.py); the ⚙ sheet itself is ../../static/settings.js.
 export const settings = () => call("GET", "api/settings");
-export const saveSettings = (changes) => call("POST", "api/settings", changes);

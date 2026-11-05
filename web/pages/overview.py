@@ -138,7 +138,9 @@ def growth(p):
     daily = total.resample("D").interpolate("time")          # snapshots are irregular: use a daily grid
     trend = daily.rolling(f"{window}D").mean()
     per_day = (daily - daily.shift(window)) / window           # € per day gained over the last `window` days
-    overall = (daily.iloc[-1] - daily.iloc[0]) / max((daily.index[-1] - daily.index[0]).days, 1)
+    span = max((daily.index[-1] - daily.index[0]).days, 1)
+    overall = (daily.iloc[-1] - daily.iloc[0]) / span
+    months = max(round(span / 30.44), 1)
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=total.index, y=total, mode="markers", name="Snapshots",
@@ -152,7 +154,8 @@ def growth(p):
     head = kpis(kpi(f"Last {window} days", f"{eur(last.iloc[-1])}/day" if len(last) else "—",
                     f"≈ {eur(last.iloc[-1] * 30)}/month" if len(last) else None,
                     tone(last.iloc[-1]) if len(last) else None),
-                kpi("Whole period", f"{eur(overall)}/day", f"≈ {eur(overall * 30)}/month", tone(overall)))
+                kpi(f"Last {months} months" if months > 1 else "Last month", f"{eur(overall)}/day",
+                    f"≈ {eur(overall * 30)}/month", tone(overall)))
     return [head, chart(style(fig, height=360))]
 
 
@@ -207,7 +210,7 @@ def animation(p):
                                         args=[None, dict(frame=dict(duration=140, redraw=True), fromcurrent=False,
                                                          transition=dict(duration=0))])])],
         sliders=[dict(active=len(frames) - 1, x=0.12, len=0.88, y=-0.02, pad=dict(t=0),
-                      currentvalue=dict(visible=False), bgcolor="#EEF0F3", bordercolor="#EEF0F3",
+                      currentvalue=dict(visible=False), bgcolor="#C9D0D8", bordercolor="#C9D0D8", borderwidth=3,
                       activebgcolor=BLUE, tickcolor="rgba(0,0,0,0)", font=dict(color="rgba(0,0,0,0)"),
                       steps=[dict(method="animate", label=f.name,
                                   args=[[f.name], dict(mode="immediate", frame=dict(duration=0, redraw=True))])
