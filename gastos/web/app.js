@@ -41,7 +41,9 @@ function dayName(iso) {
   if (diff === 1) return "Yesterday";
   return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: d.getFullYear() === today.getFullYear() ? undefined : "numeric" });
 }
-const todayIso = () => new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+// today (or today +/- n days) as YYYY-MM-DD, in local time
+const dayIso = (n = 0) => new Date(Date.now() + n * 864e5 - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+const todayIso = () => dayIso(0);
 
 const emoji = (cat) => [...(cat || "")][0] || "•";
 const label = (cat) => (cat || "").replace(/^\S+\s/, "");
@@ -381,12 +383,15 @@ function openSheet(entry = null) {
       <div class="sugg">${suggestions(e.name)}</div>
       <div class="cats">${categories(kind).map((c) => `<button type="button" class="cat ${c === category ? "on" : ""}" data-cat="${esc(c)}" title="${esc(label(c))}" aria-label="${esc(label(c))}" style="--c:${colorOf(c)}">${esc(emoji(c))}</button>`).join("")}</div>
       <div class="cat-name"></div>
-      <div class="grid2">
-        <label>Date<input type="date" name="date" value="${esc(e.date)}" required></label>
-        ${kind === "income"
-          ? `<label>Gross (before tax)<input name="gross" inputmode="decimal" placeholder="optional" value="${esc(e.gross ?? "")}"></label>`
-          : `<label class="toggle-pill"><input type="checkbox" name="paid_by_other" ${e.paid_by_other ? "checked" : ""}>Someone else paid</label>`}
+      <div class="dates">
+        <button type="button" data-day="0" class="${e.date === dayIso(0) ? "on" : ""}">Today</button>
+        <button type="button" data-day="-1" class="${e.date === dayIso(-1) ? "on" : ""}">Yesterday</button>
+        <button type="button" data-pick class="${e.date !== dayIso(0) && e.date !== dayIso(-1) ? "on" : ""}">📅 ${e.date !== dayIso(0) && e.date !== dayIso(-1) ? esc(dayName(e.date)) : "Pick a date"}</button>
+        <input type="date" name="date" value="${esc(e.date)}" tabindex="-1" aria-hidden="true" required>
       </div>
+      ${kind === "income"
+        ? `<label class="gross">Gross (before tax)<input name="gross" inputmode="decimal" placeholder="optional" value="${esc(e.gross ?? "")}"></label>`
+        : `<label class="toggle-pill"><input type="checkbox" name="paid_by_other" ${e.paid_by_other ? "checked" : ""}>Someone else paid</label>`}
       <input name="note" placeholder="Note (optional)" value="${esc(e.note ?? "")}">
       <label class="receipt">📎 ${receiptFile ? esc(receiptFile.name) : url ? `<a href="${url}" target="_blank">View file</a> · replace` : receipt ? "File kept in Google Drive · replace" : attach}
         <input type="file" name="receipt" accept="image/*,application/pdf" hidden></label>
@@ -424,6 +429,14 @@ function openSheet(entry = null) {
     if (btn.dataset.k && btn.dataset.k !== kind) {
       capture(); kind = btn.dataset.k; category = ""; catTouched = false; draw();
       $("[name=amount]", dlg).focus();
+    } else if (btn.dataset.day != null || btn.dataset.pick != null) {
+      const input = $("[name=date]", dlg);
+      if (btn.dataset.pick != null) {
+        try { input.showPicker(); } catch { input.focus(); input.click(); }
+      } else {
+        input.value = dayIso(Number(btn.dataset.day));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      }
     } else if (btn.dataset.cat) {
       category = btn.dataset.cat; catTouched = true;
       dlg.querySelectorAll(".cat").forEach((b) => b.classList.toggle("on", b === btn));
@@ -450,6 +463,7 @@ function openSheet(entry = null) {
     }
   };
   dlg.onchange = (ev) => {
+    if (ev.target.name === "date" && ev.target.value) { capture(); draw(); return; }
     if (ev.target.name === "receipt" && ev.target.files[0]) { capture(); receiptFile = ev.target.files[0]; draw(); }
   };
   dlg.onsubmit = async (ev) => {
@@ -695,6 +709,41 @@ document.addEventListener("touchend", (ev) => {
   if (quick && Math.abs(dx) > 70 && Math.abs(dx) > 2 * Math.abs(dy)) stepMonth(dx < 0 ? 1 : -1);
 }, { passive: true });
 $("#add-top").addEventListener("click", () => openSheet());
+
+// Swipe the add sheet down to cancel it: drag from the top of the sheet (or anywhere while it is scrolled to the top).
+(() => {
+  const dlg = $("#sheet");
+  let drag = null;
+  dlg.addEventListener("touchstart", (ev) => {
+    const t = ev.touches[0];
+    drag = ev.touches.length === 1 && !ev.target.closest("input, textarea, .sugg, a")
+      && (dlg.scrollTop <= 0 || ev.target.closest(".grab"))
+      ? { y: t.clientY, x: t.clientX, dy: 0, on: false, t: Date.now() } : null;
+  }, { passive: true });
+  dlg.addEventListener("touchmove", (ev) => {
+    if (!drag) return;
+    const t = ev.touches[0], dy = t.clientY - drag.y;
+    if (!drag.on) {
+      if (dy < 8 || Math.abs(t.clientX - drag.x) > dy) { if (dy < -8) drag = null; return; }  // upwards or sideways: not a swipe down
+      drag.on = true;
+      dlg.style.transition = "none";
+    }
+    drag.dy = Math.max(0, dy);
+    dlg.style.transform = `translateY(${drag.dy}px)`;
+    ev.preventDefault();   // the sheet follows the finger instead of scrolling
+  }, { passive: false });
+  const end = () => {
+    if (!drag?.on) { drag = null; return; }
+    const fast = drag.dy / (Date.now() - drag.t) > 0.5;
+    const close = drag.dy > 110 || (fast && drag.dy > 40);
+    drag = null;
+    dlg.style.transition = "transform .2s ease-out";
+    dlg.style.transform = close ? "translateY(100%)" : "";
+    setTimeout(() => { dlg.style.transition = ""; if (close) { dlg.close(); } dlg.style.transform = ""; }, 200);
+  };
+  dlg.addEventListener("touchend", end);
+  dlg.addEventListener("touchcancel", end);
+})();
 // ⚙: the settings sheet shared with Portfolio (../../static/settings.js)
 $("#open-settings").addEventListener("click", async () => {
   try {

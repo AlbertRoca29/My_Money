@@ -35,7 +35,7 @@ sheet as the online app (DEPLOY.md, step 6, sets that up).
 | `tidy_names.py` | Not part of the app: merges spellings of a name in your Movements, from a list you write in `name_merges.json` | fix many names at once |
 | `etfs.py` | ISIN, issuer and strategy bucket of popular European ETFs, to copy into `config_local.py` | add an ETF to the list |
 | `web/pages/overview.py` | Overview page: balance, breakdown, value and growth over time | change or add charts on that page |
-| `web/pages/returns.py` | MWR / TWR, money put in vs gain, the "same savings in the benchmark" comparison | — |
+| `web/pages/returns.py` | MWR, money put in vs gain, the "same savings in the benchmark" comparison | — |
 | `web/pages/exposure.py` | Look-through vs the benchmark: countries, sectors, companies, overlap… | — |
 | `web/pages/backtest_page.py` | Today's fund weights vs the benchmark over time | — |
 | `web/data.py` | Loads snapshots and cash flows, runs `mwr.py`, `lookthrough.py` and `backtest.py` (cached) | add a new data source |

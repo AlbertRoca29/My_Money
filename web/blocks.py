@@ -13,6 +13,8 @@ knows how to draw these block types; everything you see is decided here in Pytho
     items     a list of rows                   items([item("Apple", "Stocks", "€1,200")])
     notes     bullet points (**bold** allowed)  notes(["first", "second"])
     text      one paragraph                     text("...")
+    fold      a collapsed "show more" row          fold("Notes", blocks=[notes([...])]) or fold("More", cards=[...])
+    tiles     a grid of icon tiles                 tiles([tile("💻", "Technology", "28%", "All-World 26%")])
     duel      two sides compared, and a verdict duel(side("You", "€23k"), side("VWCE", "€22k"), "You lead")
 
 To add a section to a page, write a function decorated with @section and add it to the page's
@@ -145,6 +147,20 @@ def side(name, value, sub=None, color=None):
 def duel(left, right, verdict=None, tone=None):
     """Two things side by side, with a one-line verdict under them (tone "pos" / "neg" colours it)."""
     return {"type": "duel", "sides": [left, right], "verdict": _md(verdict) if verdict else None, "tone": tone}
+
+
+def fold(label, blocks=None, cards=None):
+    """Collapsed by default; opens on tap. Holds blocks, or whole cards (other @section results)."""
+    return {"type": "fold", "label": label, "blocks": blocks or [], "cards": [c for c in (cards or []) if c]}
+
+
+def tile(icon, label, value, sub=None, level=0.0, tone=None):
+    """One tile of tiles(): an emoji, a label, a value, a small line and a shade (level 0..1)."""
+    return {"icon": icon, "label": label, "value": value, "sub": sub, "level": round(float(level), 3), "tone": tone}
+
+
+def tiles(rows):
+    return {"type": "tiles", "rows": rows}
 
 
 def action(label, url, status=None):

@@ -261,6 +261,35 @@ const BLOCKS = {
     body.appendChild(el);
   },
 
+  fold(body, b) {
+    // closed by default; the content is drawn on the first open (Plotly needs a visible box to measure)
+    const el = document.createElement("details");
+    el.className = "fold";
+    el.innerHTML = `<summary>${esc(b.label)}</summary><div class="fold-body"></div>`;
+    let drawn = false;
+    el.addEventListener("toggle", () => {
+      if (!el.open || drawn) return;
+      drawn = true;
+      const inner = $(".fold-body", el);
+      for (const x of b.blocks || []) BLOCKS[x.type]?.(inner, x);
+      for (const c of b.cards || []) inner.appendChild(renderSection(c));
+    });
+    body.appendChild(el);
+  },
+
+  tiles(body, b) {
+    const el = document.createElement("div");
+    el.className = "tiles";
+    el.innerHTML = b.rows.map((t) => `
+      <div class="tile" style="--lv:${t.level}">
+        <div class="t-icon">${esc(t.icon)}</div>
+        <div class="t-label">${esc(t.label)}</div>
+        <div class="t-value">${esc(t.value)}</div>
+        ${t.sub ? `<div class="t-sub ${t.tone || ""}">${esc(t.sub)}</div>` : ""}
+      </div>`).join("");
+    body.appendChild(el);
+  },
+
   duel(body, b) {
     const el = document.createElement("div");
     el.className = "duel";

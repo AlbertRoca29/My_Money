@@ -10,7 +10,7 @@ from plotly.subplots import make_subplots
 
 import config
 from web import data
-from web.blocks import chart, empty_page, hero, kpi, kpis, notes, param, section, table
+from web.blocks import chart, empty_page, fold, hero, kpi, kpis, notes, param, section
 from web.theme import BASELINE, BLUE, CORAL, GREEN, MUTED, RED, pct, style, tone
 
 TITLE = "Backtest"
@@ -41,23 +41,24 @@ def build(p):
     }
 
 
-@section("Statistics", width="full")
+@section("Statistics")
 def stats(p):
     bt, notes_ = _run(p)
     s, b = bt["stats"]["Portfolio"], bt["stats"][bt["benchmark"]]
+    n = bt["benchmark"]
     cards = kpis(
-        kpi("Annualised", pct(s["Annualised return %"]), f"{bt['benchmark']} {pct(b['Annualised return %'])}",
+        kpi("Total return", pct(s["Total return %"], 1, sign=True), f"{n} {pct(b['Total return %'], 1, sign=True)}",
+            tone(s["Total return %"] - b["Total return %"])),
+        kpi("Per year", pct(s["Annualised return %"]), f"{n} {pct(b['Annualised return %'])}",
             tone(s["Annualised return %"] - b["Annualised return %"])),
-        kpi("Volatility", pct(s["Volatility %"]), f"{bt['benchmark']} {pct(b['Volatility %'])}",
+        kpi("Volatility", pct(s["Volatility %"]), f"{n} {pct(b['Volatility %'])}",
             tone(b["Volatility %"] - s["Volatility %"])),
-        kpi("Max drawdown", pct(s["Max drawdown %"]), f"{bt['benchmark']} {pct(b['Max drawdown %'])}",
-            tone(s["Max drawdown %"] - b["Max drawdown %"])),
-        kpi("Months ahead", pct(s["Months ahead of benchmark %"], 0),
-            f"correlation {s['Correlation with benchmark']:.2f}"))
-    return [cards, table(bt["stats"]), notes(notes_)]
+        kpi("Worst drop", pct(s["Max drawdown %"]), f"{n} {pct(b['Max drawdown %'])}",
+            tone(s["Max drawdown %"] - b["Max drawdown %"])))
+    return [cards, fold("Notes", blocks=[notes(notes_)])]
 
 
-@section("Growth of €100", "Value, drawdown from the peak and the lead over the benchmark")
+@section("Growth of €100")
 def growth(p):
     bt, _ = _run(p)
     c, name = bt["curves"] * 100, bt["benchmark"]
@@ -86,36 +87,34 @@ def growth(p):
     return chart(style(fig, height=560 if param(p, "phone", False, bool) else 680))
 
 
-@section("Where the performance came from", "Return of each fund over the window, and what it contributed")
+@section("Where the performance came from")
 def contributions(p):
     bt, _ = _run(p)
     per = bt["per_position"]
-    bench_ret = bt["stats"].loc["Total return %", bt["benchmark"]]
-    phone = param(p, "phone", False, bool)
-    # side by side on a computer, one under the other on a phone
-    fig = make_subplots(rows=2 if phone else 1, cols=1 if phone else 2, vertical_spacing=0.12,
-                        horizontal_spacing=0.22,
-                        subplot_titles=("Total return (name · weight)", "Contribution (percentage points)"))
-    second = (2, 1) if phone else (1, 2)
-    r = per.sort_values("Total return %", ascending=False)
-    fig.add_trace(go.Bar(y=[f"{n} · {w:.0f}%" for n, w in zip(r.index, r["Weight %"])], x=r["Total return %"],
-                         orientation="h", marker_cornerradius=4,
-                         marker_color=[GREEN if v >= 0 else RED for v in r["Total return %"]],
-                         text=[f"{v:+.0f}%" for v in r["Total return %"]], textposition="outside",
-                         textfont=dict(size=10, color=MUTED), cliponaxis=False,
-                         hovertemplate="%{x:+.1f}%<extra></extra>"), 1, 1)
-    fig.add_vline(x=bench_ret, line=dict(color=CORAL, width=2), row=1, col=1,
-                  annotation_text=f"{bt['benchmark']} {bench_ret:+.0f}%", annotation_font_color=CORAL)
-    c = per.sort_values("Contribution pp", ascending=False)
-    fig.add_trace(go.Bar(y=c.index, x=c["Contribution pp"], orientation="h", marker_cornerradius=4,
-                         marker_color=[BLUE if v >= 0 else RED for v in c["Contribution pp"]],
-                         text=[f"{v:+.1f}" for v in c["Contribution pp"]], textposition="outside",
-                         textfont=dict(size=10, color=MUTED), cliponaxis=False,
-                         hovertemplate="%{x:+.2f} pp<extra></extra>"), *second)
-    fig.update_yaxes(autorange="reversed", showgrid=False)
-    fig.update_xaxes(showgrid=True, gridcolor="#EEF0F3")
-    fig.update_annotations(font=dict(size=13))
-    height = (160 + 68 * len(per)) if phone else (120 + 34 * len(per))
-    return [chart(style(fig, height=height, legend=False, hover="closest")),
-            table(per, {"Weight %": pct, "Total return %": lambda v: pct(v, 1, sign=True),
-                        "Contribution pp": lambda v: f"{v:+.2f}"}, toned=("Total return %", "Contribution pp"))]
+    bench, bret = bt["benchmark"], bt["stats"].loc["Total return %", bt["benchmark"]]
+
+    def bars(df, col, colors, text, title, hover, extra=None, include=0.0):
+        fig = go.Figure(go.Bar(y=df["label"], x=df[col], orientation="h", marker_cornerradius=4, marker_color=colors,
+                               text=text, textposition="outside", textfont=dict(size=11, color=MUTED), cliponaxis=False,
+                               hovertemplate=hover))
+        fig.add_vline(x=0, line=dict(color=BASELINE, width=1))
+        if extra:
+            extra(fig)
+        fig.update_yaxes(autorange="reversed", showgrid=False)
+        fig.update_xaxes(showgrid=True, gridcolor="#EEF0F3", range=[min(0, df[col].min(), include) * 1.25,
+                                                                    max(0.0, df[col].max(), include) * 1.25 + 1e-9])
+        return chart(style(fig, height=90 + 34 * len(df), legend=False, hover="closest",
+                           title=dict(text=title, x=0, font=dict(size=14)), margin=dict(l=8, r=8, t=44, b=8)))
+
+    r = per.sort_values("Total return %", ascending=False).assign(label=lambda d: [f"{n} · {w:.0f}%" for n, w in zip(d.index, d["Weight %"])])
+    c = per.sort_values("Contribution pp", ascending=False).assign(label=lambda d: d.index)
+    # the benchmark's own return, as a coral line with its label above the plot
+    mark = lambda fig: (fig.add_vline(x=bret, line=dict(color=CORAL, width=2, dash="dot")),
+                        fig.add_annotation(x=bret, y=1, yref="paper", yanchor="bottom", showarrow=False,
+                                           text=f"{bench} {bret:+.0f}%", font=dict(size=11, color=CORAL)))
+    return [bars(r, "Total return %", [GREEN if v >= 0 else RED for v in r["Total return %"]],
+                 [f"{v:+.0f}%" for v in r["Total return %"]], "Return of each fund (name · weight)",
+                 "%{x:+.1f}%<extra></extra>", mark, include=bret),
+            bars(c, "Contribution pp", [BLUE if v >= 0 else RED for v in c["Contribution pp"]],
+                 [f"{v:+.1f}" for v in c["Contribution pp"]], "Points each fund added to the total",
+                 "%{x:+.2f} pp<extra></extra>")]

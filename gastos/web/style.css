@@ -51,7 +51,8 @@ code { background: var(--panel); padding: 1px 6px; border-radius: 6px; font-size
 }
 .tabs a:hover { background: var(--panel); color: var(--ink); }
 .tabs a.active { background: var(--ink); color: #fff; }
-#add-top { display: inline-flex; height: 40px; padding: 0 18px 0 14px; gap: 6px; }   /* every top bar item is 40px tall */
+#add-top { display: inline-flex; height: 46px; padding: 0 22px 0 16px; gap: 8px; font-size: 16px; font-weight: 600; }   /* a bit bigger than the other 40px items: the main action */
+#add-top .ico { width: 20px; height: 20px; }
 svg:has(> use) { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .ico { width: 18px; height: 18px; stroke-width: 2.2; }
 
@@ -319,6 +320,15 @@ main { max-width: 640px; margin: 0 auto; padding: 4px 16px; }
 .cat-name.on { color: var(--ink); }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: end; }
 .grid2 label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+/* Date: quick chips, the native picker only behind "Pick a date" */
+.dates { display: flex; gap: 8px; position: relative; }
+.dates button { flex: 1; border: 1.5px solid transparent; background: var(--panel); border-radius: 14px; height: 46px; padding: 0 10px;
+  font-weight: 500; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .15s, border-color .15s; }
+.dates button[data-pick] { flex: 1.4; }
+.dates button.on { background: color-mix(in srgb, var(--ink) 8%, var(--surface)); border-color: var(--ink); color: var(--ink); }
+.dates input[type=date] { position: absolute; left: 0; bottom: 0; width: 1px !important; height: 1px; padding: 0 !important; border: 0 !important; opacity: 0; pointer-events: none; }
+.gross { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.sheet { touch-action: pan-y; overscroll-behavior: contain; }
 .toggle-pill {
   display: flex !important; align-items: center; justify-content: center; gap: 8px; height: 46px; border-radius: 14px;
   background: var(--panel); color: var(--ink-2) !important; font-size: 14px !important; font-weight: 500; cursor: pointer;
@@ -346,7 +356,7 @@ main { max-width: 640px; margin: 0 auto; padding: 4px 16px; }
 /* ---------- Small screens: same top bar spacing as the portfolio pages ---------- */
 @media (max-width: 640px) {
   .topbar { gap: 10px 8px; padding-top: calc(12px + env(safe-area-inset-top)); padding-bottom: 10px; }
-  #add-top, [data-nav=top] #add-top { padding: 0 14px 0 10px; }
+  #add-top, [data-nav=top] #add-top { padding: 0 18px 0 13px; }
 }
 /* Tab bar at the top on phones too (Settings > Look > "Top on both") */
 @media (max-width: 899px) {
@@ -356,7 +366,7 @@ main { max-width: 640px; margin: 0 auto; padding: 4px 16px; }
   [data-nav=top] .topbar { flex-wrap: wrap; }
   [data-nav=top] .tabs { display: flex; order: 3; flex-basis: 100%; margin: 0 -16px; padding: 0 16px; }
   [data-nav=top] .tabs a { padding: 7px 14px; }
-  [data-nav=top] #add-top { padding: 0 14px 0 10px; }
+  [data-nav=top] #add-top { padding: 0 18px 0 13px; }
   [data-nav=top] .month { margin-left: auto; }
   [data-nav=top] .filters { top: calc(112px + env(safe-area-inset-top)); }
 }

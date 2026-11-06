@@ -57,12 +57,11 @@ def build(p):
     dates = list(df_val.index)
     latest, prev = df_val["Total"].iloc[-1], df_val["Total"].iloc[-2] if len(df_val) > 1 else None
     year_ago = df_val["Total"].asof(dates[-1] - pd.DateOffset(years=1))
-    chips = []
+    chips = []  # value first, then what it is measured against, so the two are not mixed up
     if prev is not None:
-        chips.append((f"{eur(latest - prev, sign=True)} since {dates[-2]:%d %b}", tone(latest - prev)))
+        chips.append((f"{eur(latest - prev, sign=True)} vs {dates[-2]:%d %b}", tone(latest - prev)))
     if year_ago == year_ago:  # not NaN
-        # wealth change, savings included: the Returns page has the market-only figures
-        chips.append((f"{eur(latest - year_ago, sign=True)} in 12 months", tone(latest - year_ago)))
+        chips.append((f"{eur(latest - year_ago, sign=True)} vs a year ago", tone(latest - year_ago)))
 
     snapshot_options = [(d.strftime(config.DATE_FORMAT), d.strftime("%d %b %Y")) for d in reversed(dates)]
     return {
