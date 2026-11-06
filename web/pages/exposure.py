@@ -16,7 +16,7 @@ from plotly.subplots import make_subplots
 import config
 import lookthrough
 from web import data
-from web.blocks import chart, empty_page, fold, hero, kpi, kpis, notes, param, section, table, tile, tiles
+from web.blocks import chart, empty_page, fold, hero, kpi, kpis, notes, param, section, table, text, tile, tiles
 from web.theme import (BASELINE, BLUE, BUCKET_COLORS, CORAL, GREEN, INK, MUTED, RED, REGION_COLORS, REST_COLOR,
                        SEQUENTIAL, eur, pct, shades, style, tone)
 
@@ -89,20 +89,20 @@ def build(p):
         "hero": hero("Equity analysed", eur(r["total_equity_eur"]),
                      [(f"Active share {sp['Active share vs benchmark %']:.0f}% vs {bt}", None),
                       (f"{sp['Companies held']:,} companies", None),
-                      (f"Fees ≈ {eur(sp['Cost €/year'])}/yr", None)],
+                      (f"TER {sp['TER %']:.2f}%", None)],
                      caption=f"Look-through of the {r['date'][6:]}/{r['date'][4:6]}/{r['date'][:4]} snapshot · "
                              f"fund data as of {r['benchmark']['as_of']}"),
         "controls": [],
         "sections": [s(p) for s in (scorecard, positions, market, regions, sectors, currencies,
-                                     countries, active, active_companies, top_holdings, attribution, more)],
+                                     countries, active, active_companies, top_holdings, more)],
     }
 
 
 @section("More details", width="full")
 def more(p):
     """Everything that is nice to have but not needed at a glance, folded away behind one button."""
-    cards = [s(p) for s in (country_pies, fund_profiles, concentration, overlap, insights)]
-    return [fold("Show country mix, fund breakdown, concentration, overlap and notes", cards=cards)]
+    cards = [s(p) for s in (attribution, country_pies, fund_profiles, concentration, overlap, insights)]
+    return [fold("Show where exposure comes from, country mix, fund breakdown, concentration, overlap and notes", cards=cards)]
 
 
 @section("Notes")
@@ -124,10 +124,8 @@ def scorecard(p):
 
 @section("Positions", width="half")
 def positions(p):
-    cols = ["Bucket", "€", "Weight %", "TER %"] if _phone(p) else ["Bucket", "Data from", "€", "Weight %", "TER %", "P/E", "EM %"]
-    df = _tables()["positions"][cols]
-    return table(df, {"€": eur, "Weight %": pct, "TER %": lambda v: pct(v, 2), "EM %": pct,
-                      "P/E": lambda v: "—" if v != v or v is None else f"{v:.1f}"}, bar="Weight %")
+    df = _tables()["positions"][["Bucket", "Weight %"]].sort_values("Weight %", ascending=False)
+    return table(df, {"Weight %": pct}, bar="Weight %")
 
 
 @section("Developed vs emerging", width="half")
@@ -175,7 +173,7 @@ def _world_map(df):
         hovertemplate="<b>%{location}</b><br>You %{customdata[0]:.1f}% · " + _name() + " %{customdata[1]:.1f}%<extra></extra>"))
     fig.update_geos(projection_type="natural earth", showframe=False, showcoastlines=False, showcountries=False,
                     showland=True, landcolor="#EEF0F3", bgcolor="rgba(0,0,0,0)", lataxis_range=[-58, 84])
-    return style(fig, height=380, legend=False, hover="closest", margin=dict(l=0, r=0, t=0, b=0))
+    return style(fig, height=460, legend=False, hover="closest", margin=dict(l=0, r=0, t=0, b=0))
 
 
 @section("Countries")
@@ -183,9 +181,9 @@ def countries(p):
     n = _n(p, "countries")
     full = _tables()["countries"].drop(CATCH_ALL, errors="ignore")
     us = full.loc["United States"] if "United States" in full.index else None
-    sub = f"{us['Portfolio %']:.0f}% United States · bars: top {n} without it" if us is not None else None
-    return {"blocks": [chart(_world_map(full)), chart(_grouped_bars(full.drop("United States", errors="ignore").head(n)))],
-            "subtitle": sub}
+    mid = [text(f"**United States:** {us['Portfolio %']:.1f}% of your equity vs {us[_bt() + ' %']:.1f}% in "
+                f"{_name()}")] if us is not None else []
+    return [chart(_world_map(full)), *mid, chart(_grouped_bars(full.drop("United States", errors="ignore").head(n)))]
 
 
 @section("Active weights", "Percentage points over (blue) or under (red) the benchmark")
@@ -226,7 +224,7 @@ def active_companies(p):
 
 @section("Top companies")
 def top_holdings(p):
-    n, bt, bn = _n(p, "companies"), _bt(), _name()
+    n, bt, bn = _n(p, "companies") + 3, _bt(), _name()
     t = lookthrough.tables(data.lookthrough_result(), n_holdings=n)["holdings"]
     via = t["Portfolio %"] - t["Direct %"]
     fig = go.Figure()
