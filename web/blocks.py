@@ -14,6 +14,7 @@ knows how to draw these block types; everything you see is decided here in Pytho
     notes     bullet points (**bold** allowed)  notes(["first", "second"])
     text      one paragraph                     text("...")
     fold      a collapsed "show more" row          fold("Notes", blocks=[notes([...])]) or fold("More", cards=[...])
+    tabs      a collapsible panel of tabs          tabs("More details", [("🌍", "Countries", "blurb", [card, ...])])
     tiles     a grid of icon tiles                 tiles([tile("💻", "Technology", "28%", "All-World 26%")])
     duel      two sides compared, and a verdict duel(side("You", "€23k"), side("VWCE", "€22k"), "You lead")
 
@@ -152,6 +153,13 @@ def duel(left, right, verdict=None, tone=None):
 def fold(label, blocks=None, cards=None):
     """Collapsed by default; opens on tap. Holds blocks, or whole cards (other @section results)."""
     return {"type": "fold", "label": label, "blocks": blocks or [], "cards": [c for c in (cards or []) if c]}
+
+
+def tabs(label, tabs, open=False):
+    """A "More details" panel: a row of tab buttons, one tab shown at a time (drawn on first visit).
+    tabs: [(icon, name, blurb, [cards])]. open: start expanded."""
+    return {"type": "tabs", "label": label, "open": bool(open),
+            "tabs": [{"icon": i, "name": n, "blurb": b, "cards": [c for c in cs if c]} for i, n, b, cs in tabs]}
 
 
 def tile(icon, label, value, sub=None, level=0.0, tone=None):

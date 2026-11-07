@@ -54,6 +54,10 @@ BENCHMARK_ISIN = None            # its ISIN (justETF, EUR, dividends included)
 # (the default; change it from the app's settings)
 BENCHMARK_CASH_K = 3
 
+# Other indices the Returns page can compare against (chips next to the main benchmark): name -> ISIN
+# (accumulating ETFs in EUR on justETF, dividends included)
+EXTRA_BENCHMARKS = {"MSCI World": "IE00B4L5Y983", "S&P 500": "IE00B5BMR087"}
+
 # Exposure page (look-through). Every ETF (current or past) needs a data source and a strategy bucket:
 #   "My world ETF": {"ticker": "ABCD", "provider": "ishares" | "vanguard" | "avantis", "id": "<fund id>",
 #                    "bucket": "Core index"}

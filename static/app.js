@@ -5,43 +5,10 @@
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const PLOTLY_CONFIG = { displayModeBar: false, responsive: true };
-const PHONE = window.matchMedia("(max-width: 640px)");
-
-// The Python figures are drawn for a desktop card. On a phone: no drag-to-zoom (so a swipe scrolls
-// the page), fewer date ticks, smaller fonts, and side-by-side subplots get a wider, scrollable canvas.
-// Returns true when the figure should be drawn wider than the screen.
-function fitPhone(fig) {
-  const l = fig.layout;
-  l.dragmode = false;
-  l.legend = { ...l.legend, font: { ...(l.legend || {}).font, size: 11 } };
-  const dateAxes = new Set(fig.data.filter((t) => Array.isArray(t.x) && /^\d{4}-\d\d/.test(t.x[0])).map((t) => t.xaxis || "x"));
-  const pies = fig.data.filter((t) => t.type === "pie" && t.domain && t.domain.x);
-  if (pies.length > 2) {
-    // a grid of donuts (one per fund): two per row, the subplot titles follow their donut
-    const rows = Math.ceil(pies.length / 2), titles = l.annotations || [];
-    pies.forEach((t, i) => {
-      const c = i % 2, r = Math.floor(i / 2);
-      t.domain = { x: [c / 2 + 0.03, (c + 1) / 2 - 0.03], y: [1 - (r + 1) / rows + 0.04 / rows, 1 - r / rows - 0.12 / rows] };
-      if (titles[i]) Object.assign(titles[i], { x: (c + 0.5) / 2, y: 1 - r / rows - 0.1 / rows, yanchor: "bottom", font: { ...titles[i].font, size: 11 } });
-    });
-    l.height = 210 * rows;
-  }
-  let wide = pies.length <= 2 && pies.some((t) => t.domain.x[1] - t.domain.x[0] < 0.9);
-  if (fig.data.some((t) => t.type === "heatmap" && Array.isArray(t.x) && t.x.length > 4)) wide = true; // one column per fund
-  for (const k of Object.keys(l).filter((k) => /^[xy]axis\d*$/.test(k))) {
-    const ax = l[k];
-    ax.fixedrange = true;
-    ax.tickfont = { ...ax.tickfont, size: 10 };
-    if (k[0] === "x" && ax.domain && ax.domain[1] - ax.domain[0] < 0.9) wide = true;
-    if (k[0] === "x" && dateAxes.has(k.replace("axis", ""))) ax.nticks = 5;
-  }
-  return wide;
-}
-
 // fetch, except that a signed-out (or expired) session goes back to the sign-in page
 async function api(url, options) {
   const r = await fetch(url, options);
-  if (r.status === 401) {   // signed out: forget the copies kept on this phone too
+  if (r.status === 401) {   // signed out: forget the copies kept in this browser too
     try { localStorage.removeItem("gastos.entries"); await Promise.all((await caches.keys()).map((k) => caches.delete(k))); } catch {}
     location.href = "/login?next=/portfolio";
     throw new Error("Signing in…");
@@ -64,17 +31,14 @@ async function load() {
   const { page, params } = route();
   // a tab that is hidden (demo data, Backtest switched off) can still be in the address from before: go to Overview
   if ($(`#tabs a[data-page="${page}"]`)?.hidden) return go("overview", new URLSearchParams());
-  document.querySelectorAll("#tabs a, #tabbar a").forEach((a) => a.classList.toggle("active", a.dataset.page === page));
+  document.querySelectorAll("#tabs a").forEach((a) => a.classList.toggle("active", a.dataset.page === page));
   const tab = $("#tabs a.active"), tabs = $("#tabs");
   if (tab) tabs.scrollTo({ left: tab.offsetLeft - (tabs.clientWidth - tab.offsetWidth) / 2, behavior: "smooth" });
   const token = ++loadToken;
   showSkeleton();
   let res, offline = false;
   try {
-    // phone=1: the Python pages then stack side-by-side charts and show fewer rows
-    const query = new URLSearchParams(params);
-    if (PHONE.matches) query.set("phone", "1");
-    ({ res, offline } = await fetchPage(`/api/page/${page}?${query}`));
+    ({ res, offline } = await fetchPage(`/api/page/${page}?${params}`));
   } catch (e) {
     res = { error: `Could not reach the server (${e.message}). Is app.py running?` };
   }
@@ -83,7 +47,7 @@ async function load() {
   render(page, params, res);
 }
 
-// Every page that loads is kept on the phone; with no connection the last copy is shown instead.
+// Every page that loads is kept in the browser; with no connection the last copy is shown instead.
 const PAGE_CACHE = "portfolio-pages";
 async function fetchPage(url) {
   try {
@@ -192,9 +156,9 @@ function renderControls(page, params, controls) {
 
 function renderSection(s) {
   const card = document.createElement("section");
-  card.className = `card ${s.width === "half" ? "half" : ""} ${s.error ? "error" : ""}`;
+  card.className = `card ${s.width === "half" ? "half" : ""} ${s.error ? "error" : ""} ${s.bare ? "bare" : ""}`;
   card.id = s.id;
-  card.innerHTML = `<h2>${esc(s.title)}</h2>${s.subtitle ? `<p class="sub">${esc(s.subtitle)}</p>` : ""}<div class="body"></div>`;
+  card.innerHTML = `${s.bare ? "" : `<h2>${esc(s.title)}</h2>`}${s.subtitle && !s.bare ? `<p class="sub">${esc(s.subtitle)}</p>` : ""}<div class="body"></div>`;
   const body = $(".body", card);
   if (s.error) { body.textContent = s.error; return card; }
   for (const b of s.blocks || []) {
@@ -202,6 +166,38 @@ function renderSection(s) {
     if (draw) draw(body, b);
   }
   return card;
+}
+
+// ---------- Look (settings.py > Look) ----------
+const CHART_SCALE = { compact: 0.85, normal: 1, tall: 1.2 };
+let look = {};
+function applyLook(values) {
+  look = values || {};
+  const d = document.documentElement.dataset;
+  d.privacy = look.privacy ? "on" : "off";
+  d.motion = look.motion === false ? "off" : "on";
+}
+
+// Small buttons in the corner of every chart: fill the screen, save as a picture
+function addChartTools(el) {
+  const card = el.closest(".card");
+  if (!card || $(".tools", card)) return;
+  const tools = document.createElement("div");
+  tools.className = "tools";
+  tools.innerHTML = `<button type="button" data-t="full" title="Fill the screen (Esc to close)" aria-label="Expand">⤢</button>
+    <button type="button" data-t="png" title="Save as a picture" aria-label="Save as PNG">⤓</button>`;
+  tools.addEventListener("click", (e) => {
+    const t = e.target.closest("button")?.dataset.t;
+    const plot = $(".chart .js-plotly-plot, .chart", card);
+    if (t === "full") {
+      card.classList.toggle("fullscreen");
+      document.body.classList.toggle("has-fullscreen", card.classList.contains("fullscreen"));
+      setTimeout(() => { Plotly.relayout(el, { height: card.classList.contains("fullscreen") ? Math.round(innerHeight * 0.72) : null }); Plotly.Plots.resize(el); }, 60);
+    } else if (t === "png") {
+      Plotly.downloadImage(plot || el, { format: "png", filename: `my-money-${card.id}`, scale: 2 });
+    }
+  });
+  card.appendChild(tools);
 }
 
 // ---------- Blocks (one function per type in web/blocks.py) ----------
@@ -222,18 +218,14 @@ const BLOCKS = {
     const el = document.createElement("div");
     el.className = "chart";
     const fig = b.figure;
-    if (PHONE.matches && fitPhone(fig)) {
-      const scroll = document.createElement("div");
-      scroll.className = "chart-scroll";
-      el.classList.add("wide");
-      scroll.appendChild(el);
-      body.appendChild(scroll);
-    } else {
-      body.appendChild(el);
-    }
+    body.appendChild(el);
+    const k = CHART_SCALE[look.chart_size] || 1;
+    if (k !== 1 && fig.layout.height) fig.layout.height = Math.round(fig.layout.height * k);
+    if (look.motion === false) fig.layout.transition = { duration: 0 };
     // wait until the card is in the page so Plotly can measure the width
     requestAnimationFrame(() => {
       Plotly.newPlot(el, fig.data, fig.layout, PLOTLY_CONFIG).then(() => {
+        addChartTools(el);
         if (fig.frames) Plotly.addFrames(el, fig.frames);
       });
     });
@@ -275,6 +267,52 @@ const BLOCKS = {
       for (const c of b.cards || []) inner.appendChild(renderSection(c));
     });
     body.appendChild(el);
+  },
+
+  tabs(body, b) {
+    // "More details": a closed header that opens into tabs; each tab is drawn on its first visit
+    // (Plotly needs a visible box to measure), and the open/tab choice is remembered in this browser.
+    const key = "mymoney.details";
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(key) || "{}"); } catch {}
+    const ids = b.tabs.map((t) => t.name);
+    const el = document.createElement("section");
+    el.className = "dtabs";
+    el.innerHTML = `<button class="dtabs-head" type="button" aria-expanded="false">
+        <span class="dtabs-title"><b>${esc(b.label)}</b><small>${b.tabs.length} views · ${b.tabs.reduce((n, t) => n + t.cards.length, 0)} charts</small></span>
+        <svg class="chev"><use href="#i-chevron"/></svg></button>
+      <div class="dtabs-body" hidden>
+        <div class="dtabs-bar" role="tablist">${b.tabs.map((t, i) =>
+          `<button type="button" role="tab" data-i="${i}"><span>${esc(t.icon)}</span>${esc(t.name)}</button>`).join("")}</div>
+        <p class="dtabs-blurb"></p>
+        <div class="dtabs-panes">${b.tabs.map(() => `<div class="dtabs-pane grid" hidden></div>`).join("")}</div>
+      </div>`;
+    const head = $(".dtabs-head", el), panel = $(".dtabs-body", el);
+    const btns = [...el.querySelectorAll(".dtabs-bar button")], panes = [...el.querySelectorAll(".dtabs-pane")];
+    const drawn = new Set();
+    const show = (i) => {
+      btns.forEach((x, j) => { x.classList.toggle("on", i === j); x.setAttribute("aria-selected", i === j); });
+      panes.forEach((x, j) => { x.hidden = i !== j; });
+      $(".dtabs-blurb", el).textContent = b.tabs[i].blurb || "";
+      if (!drawn.has(i)) {
+        drawn.add(i);
+        for (const c of b.tabs[i].cards) panes[i].appendChild(renderSection(c));
+      } else {
+        panes[i].querySelectorAll(".js-plotly-plot").forEach((g) => Plotly.Plots.resize(g));
+      }
+      try { localStorage.setItem(key, JSON.stringify({ ...saved, tab: b.tabs[i].name })); } catch {}
+    };
+    const toggle = (open) => {
+      head.setAttribute("aria-expanded", open);
+      el.classList.toggle("open", open);
+      panel.hidden = !open;
+      try { localStorage.setItem(key, JSON.stringify({ ...saved, open })); } catch {}
+      if (open && !drawn.size) show(Math.max(0, ids.indexOf(saved.tab ?? b.start)));
+    };
+    head.addEventListener("click", () => { saved.open = !el.classList.contains("open"); toggle(saved.open); });
+    btns.forEach((x, i) => x.addEventListener("click", () => show(i)));
+    body.appendChild(el);
+    toggle(saved.open ?? b.open);
   },
 
   tiles(body, b) {
@@ -500,10 +538,6 @@ document.addEventListener("click", (e) => { if (!e.target.closest(".switcher")) 
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeApps(); });
 
 // ---------- Settings (settings.py) ----------
-function applyNav(nav) {
-  document.documentElement.dataset.nav = nav || "top";
-  try { localStorage.setItem("mymoney.nav", nav || "top"); } catch {}
-}
 
 // ⚙: the settings sheet shared with Gastos (settings.js)
 $("#open-settings").addEventListener("click", async () => {
@@ -513,7 +547,7 @@ $("#open-settings").addEventListener("click", async () => {
       app: "portfolio", accent: "var(--blue)",
       onChange(name, value) {
         if (name === "demo") return location.reload();
-        if (name === "nav") applyNav(value);
+        if (["privacy", "motion", "chart_size"].includes(name)) applyLook({ ...look, [name]: value });
         if (name === "show_backtest") document.querySelectorAll("[data-page=backtest]").forEach((a) => (a.hidden = !value));
         // drop the page's own value for this setting (if any) so the saved one shows
         const { page, params } = route();
@@ -523,10 +557,24 @@ $("#open-settings").addEventListener("click", async () => {
   } catch (e) { toast(e.message, true); }
 });
 import("/static/settings.js").then((m) => m.reloadWhenDemoChanges()).catch(() => {});
-api("/api/settings").then((r) => r.json()).then((s) => applyNav(s.values.nav)).catch(() => {});
+
+// ---------- Keyboard (desktop): 1-4 tabs, N new snapshot, , settings, H hide amounts, Esc closes ----------
+document.addEventListener("keydown", (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  if (e.key === "Escape") {
+    const full = $(".card.fullscreen");
+    if (full) { full.classList.remove("fullscreen"); document.body.classList.remove("has-fullscreen"); Plotly.Plots.resize($(".chart", full)); }
+    return;
+  }
+  const tabs = [...document.querySelectorAll("#tabs a:not([hidden])")];
+  if (/^[1-9]$/.test(e.key) && tabs[+e.key - 1]) tabs[+e.key - 1].click();
+  else if (e.key === "n" && !$("#new-snapshot").disabled) openSheet();
+  else if (e.key === ",") $("#open-settings").click();
+  else if (e.key === "h") document.documentElement.dataset.privacy = document.documentElement.dataset.privacy === "on" ? "off" : "on";
+});
 
 // ---------- Start ----------
+api("/api/settings").then((r) => r.json()).then((s) => applyLook(s.values)).catch(() => {});
 window.addEventListener("hashchange", load);
 window.addEventListener("online", load);
-PHONE.addEventListener("change", load); // redraw the charts when crossing the phone / desktop width
 load();

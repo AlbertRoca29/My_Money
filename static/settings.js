@@ -9,7 +9,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 // Groups come in this order for each app; the rest follow in the order settings.py lists them.
 const FIRST = { gastos: ["Gastos", "Look"], portfolio: ["Overview", "Returns", "Exposure", "Backtest", "Look"] };
 
-// Forget everything kept on this phone (Gastos' entries, the portfolio pages): on sign-out.
+// Forget everything kept in this browser (Gastos' entries, the portfolio pages): on sign-out.
 export async function forgetLocal() {
   try { localStorage.removeItem("gastos.entries"); } catch {}
   try { await Promise.all((await caches.keys()).map((k) => caches.delete(k))); } catch {}
@@ -71,7 +71,7 @@ export async function openSettings({ app, accent, actions = [], onChange = () =>
     <div class="st-head"><h2>Settings</h2><button type="button" class="st-x" aria-label="Close">✕</button></div>
     <section class="st-group"><h3>Account</h3><div class="st-list"><div class="st-row">
       <span>${info.email ? `Signed in as ${esc(info.email)}` : "Running on your computer"}<small>${info.email
-        ? "Signing out also wipes the offline copy from this phone." : "No sign-in here."}</small></span>
+        ? "Signing out also wipes the offline copy from this browser." : "No sign-in here."}</small></span>
       ${info.email ? `<a class="st-btn" href="/logout" data-out>Sign out</a>` : ""}</div></div></section>
     ${groups.map((g) => `<section class="st-group"><h3>${esc(g)}</h3><div class="st-list">
       ${fields.filter((f) => f.group === g).map((f) => row(f, values[f.name])).join("")}</div></section>`).join("")}

@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import config
 from web import data
 from web.blocks import chart, empty_page, hero, item, items, kpi, kpis, param, section, select
-from web.theme import BLUE, MUTED, eur, pct, shades, style, tone
+from web.theme import BLUE, GREEN, MUTED, RED, eur, pct, shades, style, tone
 
 TITLE = "Overview"
 
@@ -33,6 +33,20 @@ def _center_label(day, total):
     """Date and total written in the hole of a donut."""
     return [dict(text=f"{day:%d %b %Y}", y=0.57, showarrow=False, font=dict(size=13, color=MUTED)),
             dict(text=f"<b>{eur(total)}</b>", y=0.46, showarrow=False, font=dict(size=28))]
+
+
+def _timed(fig, p):
+    """Settings > Look: 1Y / 3Y / All buttons above a time chart, and smooth (curved) lines."""
+    if param(p, "smooth", True, bool):
+        fig.update_traces(line_shape="spline", selector=dict(type="scatter", mode="lines"))
+    if param(p, "range_buttons", True, bool):
+        fig.update_xaxes(rangeselector=dict(
+            buttons=[dict(count=6, label="6M", step="month", stepmode="backward"),
+                     dict(count=1, label="1Y", step="year", stepmode="backward"),
+                     dict(count=3, label="3Y", step="year", stepmode="backward"), dict(step="all", label="All")],
+            x=1, xanchor="right", y=1.12, bgcolor="#F1F3F6", activecolor="#191C1F", bordercolor="rgba(0,0,0,0)",
+            font=dict(size=11, color="#505A63")))
+    return fig
 
 
 def _stacked(df, ysuffix, money):
@@ -71,7 +85,7 @@ def build(p):
             select("snapshot", "Snapshot", snapshot_options, param(p, "snapshot", snapshot_options[0][0])),
         ],
         "sections": [s(p) for s in (snapshot_donut, snapshot_list, value_over_time, growth,
-                                     allocation_over_time, smoothed_allocation, animation)],
+                                     allocation_over_time, smoothed_allocation, snapshot_changes, drawdown, top_positions, animation)],
     }
 
 
@@ -126,7 +140,7 @@ def snapshot_list(p):
 @section("Value over time", "Stacked by category, in euros")
 def value_over_time(p):
     _, df_val = data.allocation()
-    return chart(_stacked(df_val.loc[_start(p):].drop(columns="Total"), "", money=True))
+    return chart(_timed(_stacked(df_val.loc[_start(p):].drop(columns="Total"), "", money=True), p))
 
 
 @section("Growth", f"Total wealth, savings included, with its {config.GROWTH_WINDOW_DAYS}-day average")
@@ -155,13 +169,13 @@ def growth(p):
                     tone(last.iloc[-1]) if len(last) else None),
                 kpi(f"Last {months} months" if months > 1 else "Last month", f"{eur(overall)}/day",
                     f"≈ {eur(overall * 30)}/month", tone(overall)))
-    return [head, chart(style(fig, height=360))]
+    return [head, chart(_timed(style(fig, height=360), p))]
 
 
 @section("Allocation over time", "Share of the total per category", width="half")
 def allocation_over_time(p):
     df_pct, _ = data.allocation()
-    return chart(_stacked(df_pct.loc[_start(p):], "%", money=False).update_yaxes(range=[0, 100]))
+    return chart(_timed(_stacked(df_pct.loc[_start(p):], "%", money=False).update_yaxes(range=[0, 100]), p))
 
 
 @section("Smoothed allocation", f"{config.SMOOTHING_DAYS}-day rolling average", width="half")
@@ -174,7 +188,56 @@ def smoothed_allocation(p):
                                  line=dict(width=2.5, shape="spline", color=config.ASSET_TYPES.get(col)),
                                  hovertemplate=f"{col}: %{{y:.1f}}%<extra></extra>"))
     fig.update_yaxes(ticksuffix="%")
-    return chart(style(fig, height=360))
+    return chart(_timed(style(fig, height=360), p))
+
+
+@section("Change per snapshot", "How much the total moved between one snapshot and the next", width="half")
+def snapshot_changes(p):
+    _, df_val = data.allocation()
+    total = df_val["Total"].loc[_start(p):]
+    delta = total.diff().dropna()
+    if delta.empty:
+        return None
+    fig = go.Figure(go.Bar(x=delta.index, y=delta, marker=dict(color=[GREEN if v >= 0 else RED for v in delta], cornerradius=4),
+                           hovertemplate="%{x|%d %b %Y}<br><b>€%{y:+,.0f}</b><extra></extra>"))
+    fig.update_yaxes(tickprefix="€")
+    up = int((delta > 0).sum())
+    return [kpis(kpi("Best", eur(delta.max(), sign=True), f"{delta.idxmax():%d %b %Y}", "pos"),
+                 kpi("Worst", eur(delta.min(), sign=True), f"{delta.idxmin():%d %b %Y}", tone(delta.min())),
+                 kpi("Snapshots up", f"{up} of {len(delta)}", pct(100 * up / len(delta)))),
+            chart(_timed(style(fig, height=300, legend=False), p))]
+
+
+@section("Drawdown", "How far below its previous peak the total has been", width="half")
+def drawdown(p):
+    _, df_val = data.allocation()
+    total = df_val["Total"].loc[_start(p):]
+    dd = 100 * (total / total.cummax() - 1)
+    fig = go.Figure(go.Scatter(x=dd.index, y=dd, mode="lines", fill="tozeroy", name="Drawdown",
+                               line=dict(color=RED, width=2), fillcolor="rgba(229,72,77,.15)",
+                               hovertemplate="%{y:.1f}%<extra>below peak</extra>"))
+    fig.update_yaxes(ticksuffix="%", range=[min(dd.min() * 1.15, -1), 0.5])
+    return [kpis(kpi("Now", pct(dd.iloc[-1]), "below the peak" if dd.iloc[-1] < -0.05 else "at the peak", tone(dd.iloc[-1])),
+                 kpi("Deepest", pct(dd.min()), f"{dd.idxmin():%b %Y}", tone(dd.min()))),
+            chart(_timed(style(fig, height=300, legend=False), p).update_traces(line_shape="linear"))]  # a curve would overshoot the peak
+
+
+@section("Biggest positions", "The ten largest, by share of the total", width="half")
+def top_positions(p):
+    day, portfolio = data.snapshot(param(p, "snapshot", None))
+    colors = _colors_by_asset(portfolio)
+    flat = [(n, v) for assets in portfolio.values() if isinstance(assets, dict) for n, v in assets.items() if v > 0]
+    total = sum(v for _, v in flat)
+    top = sorted(flat, key=lambda x: -x[1])[:10][::-1]
+    fig = go.Figure(go.Bar(y=[n for n, _ in top], x=[100 * v / total for _, v in top], orientation="h",
+                           marker=dict(color=[colors.get(n, MUTED) for n, _ in top], cornerradius=6),
+                           customdata=[v for _, v in top], text=[pct(100 * v / total) for _, v in top], textposition="outside",
+                           cliponaxis=False, hovertemplate="<b>%{y}</b><br>€%{customdata:,.0f}<extra></extra>"))
+    fig.update_xaxes(showgrid=False, showticklabels=False)
+    fig.update_yaxes(showgrid=False)
+    top3 = sum(v for _, v in sorted(flat, key=lambda x: -x[1])[:3])
+    return [kpis(kpi("Top 3 together", pct(100 * top3 / total), eur(top3))),
+            chart(style(fig, height=340, legend=False, hover="closest", margin=dict(l=8, r=48, t=8, b=8)))]
 
 
 @section("Positions over time", "Press play — one frame per week, interpolated between snapshots")

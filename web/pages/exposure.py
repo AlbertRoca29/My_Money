@@ -3,8 +3,7 @@
 Holdings, fees and valuation ratios are downloaded from iShares, Vanguard and Avantis (cached per day,
 see lookthrough.py). Cash, gold, crypto, options and private markets are excluded.
 
-How many countries / companies the charts show is a setting (settings.py). On a phone (phone=1) the charts
-show fewer rows, stack side-by-side panels and drop the widest table columns.
+How many countries / companies the charts show is a setting (settings.py).
 """
 import math
 
@@ -15,26 +14,19 @@ from plotly.subplots import make_subplots
 
 import config
 import lookthrough
+import settings
 from web import data
-from web.blocks import chart, empty_page, fold, hero, kpi, kpis, notes, param, section, table, text, tile, tiles
+from web.blocks import chart, empty_page, fold, hero, item, items, kpi, kpis, notes, param, section, table, tabs, text
 from web.theme import (BASELINE, BLUE, BUCKET_COLORS, CORAL, GREEN, INK, MUTED, RED, REGION_COLORS, REST_COLOR,
                        SEQUENTIAL, eur, pct, shades, style, tone)
 
 TITLE = "Exposure"
-SECTOR_ICONS = {"Information Technology": "💻", "Financials": "🏦", "Health Care": "💊", "Industrials": "🏭",
-                "Consumer Discretionary": "🛍️", "Communication Services": "📡", "Consumer Staples": "🛒",
-                "Energy": "⛽", "Materials": "⛏️", "Utilities": "💡", "Real Estate": "🏠"}
 CATCH_ALL = lookthrough.CATCH_ALL
 
 
-def _phone(p):
-    return param(p, "phone", False, bool)
-
-
 def _n(p, name):
-    """How many countries / companies to show (Settings > Exposure); at most 12 on a phone."""
-    n = param(p, name, 20, int)
-    return min(n, 12) if _phone(p) else n
+    """How many countries / companies to show (Settings > Exposure)."""
+    return param(p, name, 20, int)
 
 
 def _bt():
@@ -100,9 +92,113 @@ def build(p):
 
 @section("More details", width="full")
 def more(p):
-    """Everything that is nice to have but not needed at a glance, folded away behind one button."""
-    cards = [s(p) for s in (attribution, country_pies, fund_profiles, concentration, overlap, insights)]
-    return [fold("Show where exposure comes from, country mix, fund breakdown, concentration, overlap and notes", cards=cards)]
+    """Everything that is nice to have but not needed at a glance, in one tabbed panel (desktop only)."""
+    def cards(*fns):
+        return [f(p) for f in fns]
+    panel = tabs("More details", [
+        ("🧭", "Sources", "Which fund each exposure comes from", cards(attribution, sector_treemap)),
+        ("🌍", "Countries", "Country mix of the portfolio, the benchmark and every fund", cards(country_pies, region_donuts)),
+        ("🧩", "Funds", "What each fund brings, what it costs and how it is valued", cards(fund_profiles, fees, valuation)),
+        ("🎯", "Concentration", "How top-heavy you are, and how much your funds overlap",
+         cards(top_share, concentration, overlap)),
+        ("📝", "Notes", "Plain-language takeaways", cards(insights)),
+    ], open=settings.get("details_open"))
+    panel["start"] = settings.get("details_tab")
+    return {"blocks": [panel], "bare": True}
+
+
+@section("Sector map", "Rectangle size = share of your equity. Hover for the benchmark's weight")
+def sector_treemap(p):
+    r = data.lookthrough_result()
+    port, bench = r["portfolio"]["sectors"], r["benchmark"]["sectors"]
+    keys = [k for k in sorted(port, key=lambda k: -port[k]) if port[k] >= 0.05]
+    fig = go.Figure(go.Treemap(
+        labels=keys, parents=[""] * len(keys), values=[port[k] for k in keys],
+        customdata=[[port[k], bench.get(k, 0), port[k] - bench.get(k, 0)] for k in keys],
+        marker=dict(colors=[port[k] - bench.get(k, 0) for k in keys], cmid=0, line=dict(width=2, color="white"),
+                    colorscale=[[0, "#F3B6B8"], [0.5, "#EEF0F3"], [1, "#8DB8F8"]]),
+        texttemplate="<b>%{label}</b><br>%{customdata[0]:.1f}%", textfont=dict(size=14, color=INK),
+        hovertemplate="<b>%{label}</b><br>You %{customdata[0]:.1f}% · " + _name() +
+                      " %{customdata[1]:.1f}%<br>%{customdata[2]:+.1f} pp<extra></extra>"))
+    return chart(style(fig, height=380, legend=False, hover="closest", margin=dict(l=0, r=0, t=0, b=0)))
+
+
+@section("Regions side by side", "Portfolio and benchmark, share of equity")
+def region_donuts(p):
+    r = data.lookthrough_result()
+    panels = [("Portfolio", r["portfolio"]["regions"]), (_name(), r["benchmark"]["regions"])]
+    fig = make_subplots(rows=1, cols=2, specs=[[{"type": "domain"}] * 2], subplot_titles=[t for t, _ in panels])
+    for i, (title, reg) in enumerate(panels, 1):
+        reg = {k: v for k, v in reg.items() if v >= 0.05}
+        fig.add_trace(go.Pie(labels=list(reg), values=list(reg.values()), hole=0.6, sort=True,
+                             marker=dict(colors=[REGION_COLORS.get(k, MUTED) for k in reg],
+                                         line=dict(color="white", width=2)),
+                             textinfo="percent", hovertemplate="<b>%{label}</b><br>%{value:.1f}%<extra>" + title + "</extra>"),
+                      1, i)
+    fig.update_annotations(font=dict(size=13, color=INK))
+    return chart(style(fig, height=340, legend=True, hover="closest", margin=dict(l=8, r=8, t=40, b=8)))
+
+
+@section("What the funds cost", "Ongoing charges (TER) per position, and what that is in euros a year")
+def fees(p):
+    r = data.lookthrough_result()
+    rows = [x for x in r["positions"] if x["type"] == "ETF" and x.get("ter")]
+    if not rows:
+        return None
+    rows.sort(key=lambda x: -x["ter"])
+    cost = [x["eur"] * x["ter"] / 100 for x in rows]
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("TER (% a year)", "Cost (€ a year)"), horizontal_spacing=0.22)
+    labels = [x["label"] for x in rows]
+    fig.add_trace(go.Bar(y=labels, x=[x["ter"] for x in rows], orientation="h", marker_color=BLUE, marker_cornerradius=4,
+                         hovertemplate="%{y}: %{x:.2f}%<extra></extra>"), 1, 1)
+    fig.add_trace(go.Bar(y=labels, x=cost, orientation="h", marker_color=CORAL, marker_cornerradius=4,
+                         hovertemplate="%{y}: €%{x:,.0f}<extra></extra>"), 1, 2)
+    sb = r["stats"]["benchmark"]["TER %"]
+    if sb is not None:
+        fig.add_vline(x=sb, line=dict(color=INK, width=2, dash="dot"), row=1, col=1,
+                      annotation_text=f"{_name()} {sb:.2f}%", annotation_font_size=11,
+                      annotation_position="bottom right")
+    fig.update_yaxes(autorange="reversed", showgrid=False)
+    fig.update_xaxes(showgrid=True, gridcolor="#EEF0F3")
+    fig.update_xaxes(ticksuffix="%", row=1, col=1)
+    fig.update_xaxes(tickprefix="€", row=1, col=2)
+    fig.update_annotations(font=dict(size=13, color=INK))
+    return chart(style(fig, height=110 + 34 * len(rows), legend=False, hover="closest"))
+
+
+@section("How the funds are valued", "Price/earnings and price/book of each position (lower = cheaper)")
+def valuation(p):
+    r = data.lookthrough_result()
+    rows = [x for x in r["positions"] if x["type"] == "ETF" and x.get("pe") and x.get("pb")]
+    if not rows:
+        return None
+    sb = r["stats"]["benchmark"]
+    fig = go.Figure(go.Scatter(
+        x=[x["pe"] for x in rows], y=[x["pb"] for x in rows], mode="markers+text", text=[x["label"] for x in rows],
+        textposition="top center", textfont=dict(size=11, color=MUTED),
+        marker=dict(size=[max(12, min(46, x["weight"] * 1.4)) for x in rows], color=BLUE, opacity=0.65,
+                    line=dict(color="white", width=1.5)),
+        hovertemplate="<b>%{text}</b><br>P/E %{x:.1f} · P/B %{y:.1f}<extra></extra>"))
+    if sb.get("P/E") and sb.get("P/B"):
+        fig.add_trace(go.Scatter(x=[sb["P/E"]], y=[sb["P/B"]], mode="markers+text", text=[_name()], textposition="bottom center",
+                                 marker=dict(size=16, symbol="diamond", color=CORAL, line=dict(color="white", width=1.5)),
+                                 hovertemplate="<b>" + _name() + "</b><br>P/E %{x:.1f} · P/B %{y:.1f}<extra></extra>"))
+    fig.update_xaxes(title="P/E")
+    fig.update_yaxes(title="P/B")
+    return chart(style(fig, height=380, legend=False, hover="closest"))
+
+
+@section("Top-heavy?", "Share of your equity held by the largest 10, 50 and 100 companies")
+def top_share(p):
+    r = data.lookthrough_result()
+    cards = []
+    for n in (10, 50, 100):
+        def at(key):
+            pts = r["concentration"][key]
+            return min(pts, key=lambda t: abs(t[0] - n))[1]
+        mine, theirs = at("portfolio"), at("benchmark")
+        cards.append(kpi(f"Top {n}", f"{mine:.0f}%", f"{_name()} {theirs:.0f}%", tone(theirs - mine)))
+    return kpis(*cards)
 
 
 @section("Notes")
@@ -124,8 +220,10 @@ def scorecard(p):
 
 @section("Positions", width="half")
 def positions(p):
-    df = _tables()["positions"][["Bucket", "Weight %"]].sort_values("Weight %", ascending=False)
-    return table(df, {"Weight %": pct}, bar="Weight %")
+    df = _tables()["positions"].sort_values("Weight %", ascending=False)
+    rows = [item(label, r["Type"], pct(r["Weight %"]), eur(r["€"]), color=BLUE if r["Type"] == "ETF" else GREEN)
+            for label, r in df.iterrows()]
+    return items(rows)
 
 
 @section("Developed vs emerging", width="half")
@@ -137,12 +235,7 @@ def market(p):
 @section("Sectors")
 def sectors(p):
     df = _tables()["sectors"]
-    bt, n = _bt(), _name()
-    top = max(df["Portfolio %"].max(), 1)
-    rows = [tile(SECTOR_ICONS.get(s, "📊"), s, pct(r["Portfolio %"]), f"{n} {pct(r[f'{bt} %'])}",
-                 r["Portfolio %"] / top, tone(r["Active (pp)"]) if abs(r["Active (pp)"]) >= 0.5 else None)
-            for s, r in df.iterrows() if r["Portfolio %"] >= 0.05]
-    return tiles(rows)
+    return chart(_grouped_bars(df[df["Portfolio %"] >= 0.05].sort_values("Portfolio %", ascending=False)))
 
 
 @section("Regions", width="half")
@@ -192,9 +285,6 @@ def active(p):
     s = t["sectors"]["Active (pp)"].sort_values(ascending=False)
     c = t["countries"]["Active (pp)"].drop(CATCH_ALL, errors="ignore")
     c = c.reindex(c.abs().sort_values(ascending=False).index[:n]).sort_values(ascending=False)
-    if _phone(p):  # one chart under the other
-        return [chart(_diverging(ser).update_layout(title=dict(text=title, x=0, font=dict(size=13)), margin=dict(t=36)))
-                for title, ser in (("Sectors", s), (f"Countries (largest {n} gaps)", c))]
     fig = make_subplots(rows=1, cols=2, subplot_titles=("Sectors", f"Countries (largest {n} gaps)"),
                         horizontal_spacing=0.18)
     for col, ser in ((1, s), (2, c)):
@@ -215,8 +305,6 @@ def active_companies(p):
     a = sorted(data.lookthrough_result().get("active_holdings", []), key=lambda x: x["active"])
     rows = list(reversed(a[-n:])) + [x for x in reversed(a[:n]) if x not in a[-n:]]
     ser = pd.Series([x["active"] for x in rows], index=[x["name"] for x in rows])
-    if _phone(p):  # no room for the labels: they are in the tap-tooltip
-        return {"blocks": [chart(_diverging(ser))], "subtitle": f"Percentage points vs {bt}"}
     labels = [f"{x['weight']:.2f}% vs {x['benchmark_weight']:.2f}%" for x in rows]
     return {"blocks": [chart(_diverging(ser, labels=labels))],
             "subtitle": f"Labels: your weight vs {bt}"}
@@ -257,10 +345,11 @@ def attribution(p):
             fig.add_trace(go.Bar(y=order, x=[attr[dim].get(b, {}).get(k, 0) for k in order], name=b, orientation="h",
                                  marker_color=BUCKET_COLORS.get(b, MUTED), showlegend=dim == "sectors",
                                  legendgroup=b, hovertemplate=f"{b}: %{{x:.2f}}%<extra></extra>"))
-        fig.add_trace(go.Scatter(y=order, x=[r["benchmark"][dim].get(k, 0) for k in order], name=f"{bt} weight",
-                                 mode="markers", showlegend=dim == "sectors",
-                                 marker=dict(symbol="line-ns", size=16, line=dict(width=3, color=CORAL)),
-                                 hovertemplate=f"{bt}: %{{x:.2f}}%<extra></extra>"))
+        if settings.get("show_benchmark_lines"):
+            fig.add_trace(go.Scatter(y=order, x=[r["benchmark"][dim].get(k, 0) for k in order], name=f"{bt} weight",
+                                     mode="markers", showlegend=dim == "sectors",
+                                     marker=dict(symbol="line-ns", size=16, line=dict(width=3, color=CORAL)),
+                                     hovertemplate=f"{bt}: %{{x:.2f}}%<extra></extra>"))
         fig.update_yaxes(autorange="reversed", showgrid=False)
         fig.update_xaxes(ticksuffix="%", showgrid=True, gridcolor="#EEF0F3")
         title = {"sectors": "Sectors", "regions": "Regions", "countries": f"Top {n} countries, ex-US"}[dim]
@@ -293,7 +382,7 @@ def country_pies(p):
     if direct:
         panels.append(("Direct stocks", direct))
 
-    ncols = 3
+    ncols = int(settings.get("pie_cols"))
     nrows = math.ceil(len(panels) / ncols)
     fig = make_subplots(rows=nrows, cols=ncols, specs=[[{"type": "domain"}] * ncols] * nrows,
                         subplot_titles=[t for t, _ in panels], vertical_spacing=0.06)
@@ -307,7 +396,7 @@ def country_pies(p):
                              hovertemplate="<b>%{label}</b><br>%{value:.1f}%<extra>" + title + "</extra>"),
                       i // ncols + 1, i % ncols + 1)
     fig.update_annotations(font=dict(size=13, color=INK))
-    return chart(style(fig, height=300 * nrows, legend=False, hover="closest", margin=dict(l=8, r=8, t=40, b=8)))
+    return chart(style(fig, height=290 * nrows, legend=False, hover="closest", margin=dict(l=8, r=8, t=40, b=8)))
 
 
 @section("What each fund brings", "Sector and country mix of every fund (%)")

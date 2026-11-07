@@ -194,9 +194,10 @@ def snaps_and_flows():
 
 
 @cached
-def benchmark_prices():
-    """The benchmark's daily EUR total-return series (downloaded from justETF, cached per day on disk)."""
-    return backtest.justetf_series(config.BENCHMARK_ISIN)
+def benchmark_prices(isin=None):
+    """A benchmark's daily EUR total-return series (downloaded from justETF, cached per day on disk).
+    Defaults to the main benchmark."""
+    return backtest.justetf_series(isin or config.BENCHMARK_ISIN)
 
 
 @cached(savings=True)
@@ -207,11 +208,11 @@ def alternative(cash_eur):
 
 
 @cached(savings=True)
-def alternative_between(cash_eur, start, end):
+def alternative_between(cash_eur, start, end, isin=None):
     """Like alternative(), but starting on the snapshot dated `start` with the value you had then, so over a
     window (one year, the last 12 months) both lines begin at the same point and use the same savings."""
     snaps, flows = snaps_and_flows()
-    return mwr.simulate([s for s in snaps if start <= s[0] <= end], flows, benchmark_prices(), cash_eur, 0.0)
+    return mwr.simulate([s for s in snaps if start <= s[0] <= end], flows, benchmark_prices(isin), cash_eur, 0.0)
 
 
 # ---------------------------------------------------------------------------

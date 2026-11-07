@@ -3,7 +3,7 @@
 ETF prices come from justETF (EUR, dividends included). The window starts when the newest fund has
 data; the "longest history" switch swaps short-history funds for long-running stand-ins
 (PROXY / BENCH_PROXY in config.py) so it goes back years further — treat that as indicative.
-Both are settings (settings.py), changed from the ⚙ sheet. On a phone (phone=1) side-by-side charts are stacked.
+Both are settings (settings.py), changed from the ⚙ sheet.
 """
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -84,7 +84,7 @@ def growth(p):
     fig.update_yaxes(tickprefix="€", row=1, col=1)
     fig.update_yaxes(ticksuffix="%", title_text="drawdown", row=2, col=1)
     fig.update_yaxes(ticksuffix="%", title_text=f"vs {name}", row=3, col=1)
-    return chart(style(fig, height=560 if param(p, "phone", False, bool) else 680))
+    return chart(style(fig, height=680))
 
 
 @section("Where the performance came from")

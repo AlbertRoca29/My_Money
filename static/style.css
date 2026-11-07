@@ -155,6 +155,8 @@ main { max-width: 1320px; margin: 0 auto; padding: 8px clamp(16px, 4vw, 48px) 80
 /* ---------- Sections ---------- */
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
 .card { grid-column: span 2; background: var(--panel); border-radius: var(--radius-lg); padding: clamp(20px, 3vw, 32px); min-width: 0; }
+.card.bare { padding: 0; background: none; }
+.card.bare .body { margin-top: 0; }
 .card.half { grid-column: span 1; }
 .card h2 { font: 600 clamp(22px, 2.4vw, 28px)/1.15 var(--display); letter-spacing: -0.03em; margin: 0; }
 .card .sub { color: var(--muted); margin: 6px 0 0; font-size: 14px; max-width: 80ch; }
@@ -224,6 +226,30 @@ td .bar { display: inline-block; height: 6px; border-radius: 3px; background: va
 .fold-body { display: grid; gap: 16px; margin-top: 16px; }
 .fold-body .card { grid-column: auto; background: var(--surface); }
 
+/* Tabs: the "More details" panel */
+.dtabs { border-radius: var(--radius-lg); background: var(--panel); overflow: hidden; }
+.dtabs-head { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 24px; cursor: pointer; }
+.dtabs-head:hover { background: #ECEEF1; }
+.dtabs-head:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.dtabs-title { display: grid; gap: 2px; }
+.dtabs-title b { font: 600 20px/1.2 var(--display); letter-spacing: -0.02em; }
+.dtabs-title small { color: var(--muted); font-size: 13px; }
+.dtabs-head .chev { width: 22px; height: 22px; fill: none; stroke: var(--ink-2); stroke-width: 2; stroke-linecap: round;
+  stroke-linejoin: round; transition: transform .2s; }
+.dtabs.open .dtabs-head .chev { transform: rotate(180deg); }
+.dtabs-body { padding: 0 24px 24px; }
+.dtabs-bar { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: #E6E9ED; border-radius: 999px; }
+.dtabs-bar button { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 16px; border-radius: 999px; font-weight: 500; color: var(--ink-2); transition: background .15s, color .15s; }
+.dtabs-bar button:hover { color: var(--ink); }
+.dtabs-bar button:focus-visible { outline: 2px solid var(--blue); }
+.dtabs-bar button.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(25,28,31,.12); }
+.dtabs-blurb { margin: 14px 4px 16px; color: var(--ink-2); }
+.dtabs-pane { display: grid; gap: 16px; }
+.dtabs-pane[hidden] { display: none; }
+.dtabs-pane .card { background: var(--surface); }
+
 /* Tiles: an icon grid (the sectors) */
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
 .tile { border-radius: var(--radius-md); padding: 14px; min-width: 0;
@@ -281,8 +307,6 @@ td .bar { display: inline-block; height: 6px; border-radius: 3px; background: va
 .sheet-foot { position: sticky; bottom: 0; background: var(--surface); display: flex; justify-content: space-between; align-items: center;
   gap: 12px; padding: 16px 0 24px; margin-top: 8px; border-top: 1px solid var(--line); }
 
-/* Bottom tab bar (phones, ⚙ > Look > "Bottom on both") */
-.tabbar { display: none; }
 
 /* Toast */
 .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 60;
@@ -290,53 +314,56 @@ td .bar { display: inline-block; height: 6px; border-radius: 3px; background: va
   box-shadow: 0 10px 30px rgba(0,0,0,.18); animation: rise .2s ease-out; max-width: calc(100% - 32px); }
 .toast.bad { background: var(--neg); }
 
-/* ---------- Small screens ---------- */
-@media (max-width: 900px) {
-  .card.half { grid-column: span 2; }
-}
-@media (max-width: 640px) {
-  .topbar { flex-wrap: wrap; gap: 10px 12px; padding-top: calc(12px + env(safe-area-inset-top)); padding-bottom: 10px; }
-  .switcher { margin-right: auto; }
-  [data-nav=bottom] .tabs { display: none; }
-  [data-nav=bottom] main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
-  [data-nav=bottom] .tabbar {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
-    padding: 8px 8px calc(6px + env(safe-area-inset-bottom)); background: rgba(255,255,255,.9); border-top: 1px solid var(--line);
-    backdrop-filter: saturate(180%) blur(18px); -webkit-backdrop-filter: saturate(180%) blur(18px);
-  }
-  [data-nav=bottom] .tabbar a { display: grid; justify-items: center; gap: 3px; padding-top: 2px; font-size: 11px; font-weight: 500; color: var(--muted); }
-  [data-nav=bottom] .tabbar a svg { width: 24px; height: 24px; }
-  [data-nav=bottom] .tabbar a.active { color: var(--ink); }
-  [data-nav=bottom] .tabbar a.active svg { stroke-width: 2.2; }
-  [data-nav=bottom] .toast { bottom: calc(90px + env(safe-area-inset-bottom)); }
-  .duel .side { padding: 14px; }
-  .verdict { font-size: 14px; }
-  .tabs { order: 3; flex-basis: 100%; margin: 0 calc(-1 * clamp(16px, 4vw, 48px)); padding: 0 clamp(16px, 4vw, 48px); }
-  .tabs::after { content: ""; flex: 0 0 12px; } /* right padding is ignored in a scrolling flex row */
-  #new-snapshot { padding: 0 16px; }
-  .hero { min-height: 240px; border-radius: var(--radius-lg); }
-  .hero .value { font-size: clamp(44px, 14vw, 56px); }
-  .field { width: 100%; justify-content: space-between; }
-  .controls { flex-wrap: nowrap; }
-  .field input, .field select { flex: 0 1 auto; }
-  /* 16px keeps iOS Safari from zooming the page when an input gets focus */
-  .field input, .field select, .row input { font-size: 16px; }
-  .card { padding: 18px 14px; }
-  .card h2, .card .sub { padding: 0 4px; }
-  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  .kpi { padding: 14px; }
-  .kpi .k-value { font-size: 22px; }
-  .items { max-height: none; }
-  .item { padding: 11px 14px; gap: 12px; }
-  th, td { padding-left: 12px; padding-right: 12px; }
-  th:first-child, td:first-child { position: sticky; left: 0; background: var(--surface); z-index: 1;
-    max-width: 46vw; overflow: hidden; text-overflow: ellipsis; }
-  .row .r-amount { width: 100px; }
-  .sheet { padding-bottom: env(safe-area-inset-bottom); }
-  .sheet h2 { font-size: 40px; }
-  .toast { bottom: calc(20px + env(safe-area-inset-bottom)); }
-}
+/* Narrower than 900px the page is replaced by the "Desktop only" notice (gate.css). */
 
 .banner { background: #FFF4D6; color: #6B4E00; padding: 8px 16px; font-size: 13px; text-align: center; }
 #new-snapshot:disabled { opacity: .4; cursor: default; }
-#tabs a[hidden], #tabbar a[hidden] { display: none !important; }
+#tabs a[hidden] { display: none !important; }
+
+/* Chart tooltips: light floating card with a soft shadow (Plotly draws them as SVG) */
+.js-plotly-plot .hoverlayer .hovertext { filter: drop-shadow(0 6px 18px rgba(25,28,31,.14)); }
+.js-plotly-plot .hoverlayer .hovertext path { fill: #fff; stroke: var(--line); stroke-width: 1px; }
+.js-plotly-plot .hoverlayer .hovertext text { fill: var(--ink); }
+.js-plotly-plot .hoverlayer .hovertext .nums { font-weight: 500; }
+
+/* ---------- Desktop polish ---------- */
+html { scroll-behavior: smooth; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #D5DAE0; border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: #B8BFC8; background-clip: content-box; border: 2px solid transparent; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 8px; }
+::selection { background: rgba(6,102,235,.18); }
+
+.card { position: relative; transition: box-shadow .25s ease, transform .25s ease; }
+.card:hover { box-shadow: 0 14px 40px rgba(25,28,31,.08); transform: translateY(-2px); }
+html[data-motion=on] .card { animation: cardin .45s cubic-bezier(.2,.7,.2,1) both; }
+html[data-motion=on] .card:nth-child(2) { animation-delay: .04s; } html[data-motion=on] .card:nth-child(3) { animation-delay: .08s; }
+html[data-motion=on] .card:nth-child(4) { animation-delay: .12s; } html[data-motion=on] .card:nth-child(n+5) { animation-delay: .16s; }
+html[data-motion=off] *, html[data-motion=off] *::before { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+
+.kpi { transition: background .2s, transform .2s; }
+.kpi:hover { transform: translateY(-1px); }
+.item { transition: background .15s; border-radius: 14px; }
+.item:hover { background: rgba(6,102,235,.05); }
+tbody tr { transition: background .15s; } tbody tr:hover { background: rgba(6,102,235,.05); }
+.hero { cursor: default; }
+.chip { transition: transform .15s; } .chip:hover { transform: scale(1.04); }
+
+/* Chart corner buttons: appear when the card is hovered */
+.card > .tools { position: absolute; top: 14px; right: 14px; display: flex; gap: 4px; opacity: 0; transition: opacity .2s; z-index: 5; }
+.card:hover > .tools, .card.fullscreen > .tools { opacity: 1; }
+.tools button { width: 30px; height: 30px; border: 0; border-radius: 10px; background: #F1F3F6; color: var(--ink-2, #505A63); font-size: 15px; cursor: pointer; transition: background .15s, color .15s; }
+.tools button:hover { background: var(--ink); color: #fff; }
+.card.fullscreen { position: fixed; inset: 24px; z-index: 80; overflow: auto; transform: none !important; box-shadow: 0 30px 90px rgba(0,0,0,.35); animation: none; }
+body.has-fullscreen::before { content: ""; position: fixed; inset: 0; z-index: 70; background: rgba(25,28,31,.5); backdrop-filter: blur(4px); }
+body.has-fullscreen { overflow: hidden; }
+
+/* Plotly range buttons */
+.rangeselector .button rect { rx: 8; ry: 8; transition: fill .15s; }
+.rangeselector .button.active text { fill: #fff !important; }
+
+/* Settings > Look > Hide amounts: blur the numbers; hover (or H) shows them */
+html[data-privacy=on] :is(.hero .value, .k-value, .item .value, .item .sub-value, td, .chip, #sheet-total) { filter: blur(9px); transition: filter .2s; user-select: none; }
+html[data-privacy=on] :is(.hero .value, .k-value, .item .value, .item .sub-value, td, .chip):hover { filter: none; }
+html[data-privacy=on] .js-plotly-plot .ytick text, html[data-privacy=on] .js-plotly-plot .annotation-text { filter: blur(6px); }
+@keyframes cardin { from { transform: translateY(12px); opacity: 0; } }

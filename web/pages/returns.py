@@ -14,7 +14,7 @@ import config
 import mwr
 from web import data
 from web.blocks import chart, chips, duel, empty_page, hero, kpi, kpis, param, section, side, table
-from web.theme import BASELINE, BLUE, CORAL, GREEN, MUTED, RED, eur, frac, style, tone
+from web.theme import BASELINE, BLUE, CORAL, GREEN, INK, MUTED, RED, eur, frac, style, tone
 
 TITLE = "Returns"
 
@@ -56,7 +56,9 @@ def build(p):
                       (f"{eur(r['saved'])} saved {when}", None)],
                      caption=f"{start[0]:%d %b %Y} → {end[0]:%d %b %Y} (snapshots)" + (" · not annualised" if short else ""),
                      unit=None if short else "/yr"),
-        "controls": [chips("period", _periods(snaps), period)],
+        "controls": [chips("period", _periods(snaps), period)]
+                    + ([chips("bench", [(n, n) for n in (config.BENCHMARK_NAME, *config.EXTRA_BENCHMARKS)], _bench(p)[0])]
+                       if config.BENCHMARK_ISIN and config.EXTRA_BENCHMARKS else []),
         "sections": [sec(p) for sec in (mwr_evolution, vs_benchmark, periods, money_in, monthly)],
     }
 
@@ -78,12 +80,13 @@ def mwr_evolution(p):
     fig.add_hline(y=0, line=dict(color=BASELINE, width=1))
     if config.BENCHMARK_ISIN:  # the same savings, on the same days, in the benchmark with some cash on the side
         k = param(p, "cash_k", config.BENCHMARK_CASH_K, float)
-        alt = data.alternative_between(1000 * k, start[0], end[0])
+        label, isin = _bench(p)
+        alt = data.alternative_between(1000 * k, start[0], end[0], isin)
         a0 = (start[0], alt.asof(x0))
         theirs = [mwr.mwr(a0, (d.date(), alt.asof(d)), flows)["period"] for d in x]
-        fig.add_trace(go.Scatter(x=[x0, *x], y=[0, *theirs], name=f"{_bench_name(k)} — {theirs[-1]:+.1%}",
+        fig.add_trace(go.Scatter(x=[x0, *x], y=[0, *theirs], name=f"{_bench_name(k, label)} — {theirs[-1]:+.1%}",
                                  line=dict(color=CORAL, width=2.5), mode="lines+markers", marker=dict(size=4),
-                                 hovertemplate="%{y:+.1%}<extra>" + _bench_name(k) + "</extra>"))
+                                 hovertemplate="%{y:+.1%}<extra>" + _bench_name(k, label) + "</extra>"))
     fig.add_trace(go.Scatter(x=[x0, *x], y=[0, *period], name=f"You — {period[-1]:+.1%}",
                              line=dict(color=BLUE, width=3), mode="lines+markers", marker=dict(size=5),
                              customdata=[0, *gain], hovertemplate="%{y:+.1%} · %{customdata:+,.0f} €<extra>you</extra>"))
@@ -91,7 +94,7 @@ def mwr_evolution(p):
     return chart(style(fig, height=380))
 
 
-@section("Money-weighted return", "Savings count as deposits")
+@section("Money-weighted return")
 def periods(p):
     snaps, flows = data.snaps_and_flows()
     df = mwr.summary(snaps, flows)
@@ -137,31 +140,52 @@ def money_in(p):
     return chart(style(fig, height=540))
 
 
-@section("Each month: saved vs market gain")
+def _short(v):
+    """+1.8k / −996: short enough to sit next to a bar on a narrow screen."""
+    s = "−" if v < 0 else "+"
+    return f"{s}{abs(v) / 1000:.1f}k" if abs(v) >= 1000 else f"{s}{abs(v):.0f}"
+
+
+@section("Saved vs market", width="half")
 def monthly(p, max_gap_days=45):
     snaps, flows = data.snaps_and_flows()
     _, start, end = _window(p, snaps)
     iv = mwr.intervals([s for s in snaps if start[0] <= s[0] <= end[0]], flows)
     iv = iv[(pd.to_datetime(iv["to"]) - pd.to_datetime(iv["from"])).dt.days <= max_gap_days]
     month = pd.to_datetime(iv["to"]).dt.to_period("M")
-    m = iv.groupby(month)[["saved", "gain"]].sum()
-    m["return"] = iv.groupby(month)["return"].apply(lambda r: (1 + r).prod() - 1)  # compound within the month
-    x = [p.strftime("%b %y") for p in m.index]
+    m = iv.groupby(month)[["saved", "gain"]].sum().iloc[::-1]  # newest on top
+    rows = [p.strftime("%b %y") for p in m.index]
 
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=x, y=m["saved"], name=f"Saved — {eur(m['saved'].sum())}", marker_color=CORAL,
-                         marker_cornerradius=6, hovertemplate="€%{y:,.0f}<extra>saved</extra>"))
-    fig.add_trace(go.Bar(x=x, y=m["gain"], name=f"Market gain — {eur(m['gain'].sum(), sign=True)}",
-                         marker_color=[GREEN if g >= 0 else RED for g in m["gain"]], marker_cornerradius=6,
-                         text=[f"{r:+.1%}" for r in m["return"]], textposition="outside",
-                         textfont=dict(color=MUTED, size=10), cliponaxis=False,
-                         hovertemplate="%{y:+,.0f} €<extra>market</extra>"))
-    fig.update_yaxes(tickprefix="€")
-    return chart(style(fig, height=400, barmode="group"))
+    # One row per month, two columns on the same scale: what you saved and what the market did. Each column has
+    # its own zero line, and colour only says in (green) or out (red).
+    lim = m.abs().to_numpy().max() * 1.45  # room for the labels
+    fig = make_subplots(rows=1, cols=2, shared_yaxes=True, horizontal_spacing=0.04,
+                        subplot_titles=(f"Saved {_short(m['saved'].sum())}", f"Market {_short(m['gain'].sum())}"))
+    for col, (name, vals) in enumerate(m.items(), start=1):
+        fig.add_trace(go.Bar(y=rows, x=vals, orientation="h", width=0.55, marker_cornerradius=3,
+                             marker_color=[GREEN if v >= 0 else RED for v in vals],
+                             text=[_short(v) for v in vals], textposition="outside", cliponaxis=False,
+                             textfont=dict(size=11, color=INK), hovertemplate=f"%{{x:+,.0f}} €<extra>{name}</extra>"),
+                      1, col)
+        fig.update_xaxes(range=[-lim, lim], showticklabels=False, showgrid=False, zeroline=True,
+                         zerolinecolor=BASELINE, zerolinewidth=1, fixedrange=True, row=1, col=col)
+    fig.update_yaxes(showgrid=False, autorange="reversed", fixedrange=True)
+    fig.update_annotations(font=dict(size=12, color=MUTED))
+    return chart(style(fig, height=60 + 26 * len(rows), legend=False, hover="closest",
+                       margin=dict(l=4, r=4, t=30, b=4)))
 
 
-def _bench_name(k):
-    return f"{config.BENCHMARK_NAME} + €{k:g}k cash" if k else f"100% {config.BENCHMARK_NAME}"
+def _bench(p):
+    """(label, ISIN) of the index chosen with the chips: the main benchmark unless another one is picked."""
+    options = {config.BENCHMARK_NAME: config.BENCHMARK_ISIN, **config.EXTRA_BENCHMARKS}
+    label = param(p, "bench", config.BENCHMARK_NAME)
+    label = label if label in options else config.BENCHMARK_NAME
+    return label, options[label]
+
+
+def _bench_name(k, label=None):
+    label = label or config.BENCHMARK_NAME
+    return f"{label} + €{k:g}k cash" if k else f"100% {label}"
 
 
 @section("You vs the benchmark", width="full")
@@ -169,12 +193,13 @@ def vs_benchmark(p):
     if not config.BENCHMARK_ISIN:
         return None  # no benchmark set in config_local.py
     k = param(p, "cash_k", config.BENCHMARK_CASH_K, float)
-    name = _bench_name(k)
+    label, isin = _bench(p)
+    name = _bench_name(k, label)
     snaps, flows = data.snaps_and_flows()
     period, start, end = _window(p, snaps)
     # The benchmark gets the value you had at the start of the period and the same savings on the same days, so
     # its line starts where yours does and the two end values differ by exactly the "ahead / behind" figure.
-    alt = data.alternative_between(1000 * k, start[0], end[0])
+    alt = data.alternative_between(1000 * k, start[0], end[0], isin)
     alt_start, alt_end = (start[0], alt[pd.Timestamp(start[0])]), (end[0], alt[pd.Timestamp(end[0])])
     you, them = mwr.mwr(start, end, flows), mwr.mwr(alt_start, alt_end, flows)
     short = (end[0] - start[0]).days < 330  # too short to annualise honestly
@@ -190,7 +215,7 @@ def vs_benchmark(p):
                              marker=dict(size=5), hovertemplate="€%{y:,.0f}<extra>you</extra>"))
     fig.update_yaxes(tickprefix="€")
     when = "the last 12 months" if period == "12m" else period
-    return {"subtitle": f"Same savings, same days, in {config.BENCHMARK_NAME} with €{k:g}k kept as cash",
+    return {"subtitle": f"Same savings, same days, in {label} with €{k:g}k kept as cash",
             "blocks": [duel(side("You", eur(you["gain"], sign=True), rate(you), BLUE),
                             side(name, eur(them["gain"], sign=True), rate(them), CORAL),
                             f"You are **{eur(abs(lead))}** {'ahead' if lead >= 0 else 'behind'}", tone(lead)),

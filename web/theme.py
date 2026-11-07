@@ -91,7 +91,7 @@ pio.templates["my_money"] = go.layout.Template(layout=dict(
     yaxis=dict(**_axis, showgrid=True, gridcolor=GRID, gridwidth=1),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
                 font=dict(color=INK_2, size=12), bgcolor="rgba(0,0,0,0)"),
-    hoverlabel=dict(bgcolor=INK, bordercolor=INK, font=dict(color="white", family=FONT, size=12)),
+    hoverlabel=dict(bgcolor="white", bordercolor=GRID, font=dict(color=INK, family=FONT, size=13), align="left"),
     margin=dict(l=8, r=8, t=36, b=8),
     bargap=0.3,
     hovermode="x unified",
