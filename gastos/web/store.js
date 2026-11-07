@@ -24,6 +24,11 @@ export async function clearLocal() {
   try { await Promise.all((await caches.keys()).map((k) => caches.delete(k))); } catch {}
 }
 
+// The last list this phone saw, or null: lets the screen draw before the server answers.
+export function cachedEntries() {
+  try { return JSON.parse(localStorage.getItem(CACHE_KEY)); } catch { return null; }
+}
+
 // Every entry, newest first. Falls back to the last copy seen when offline.
 export async function listEntries() {
   try {

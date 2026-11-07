@@ -13,8 +13,10 @@ const state = {
   entries: [],
   month: monthKey(new Date()),   // "2026-11"
   list: { q: "", kind: "all", cat: "", sort: "date", catOpen: false },
-  period: "12m",                 // Stats: "12m" (last 12 months) or a year, "2025"
-  settings: {},                  // ../../settings.py values (hide_others, top_min, nav…)
+  period: null,                  // Stats: "12m" (last 12 months) or a year, "2025"; null = Settings > Stats open on
+  statCat: "",                   // Stats: the category drawn month by month (click one in "Average per month")
+  jumpTo: null,                  // after switching view, scroll to (and flash) this element id
+  settings: {},                  // ../../settings.py values (hide_others, top_min, budget…)
 };
 
 // ---------------------------------------------------------------- helpers
@@ -114,11 +116,11 @@ function row(e, withDate = false) {
   </button>`;
 }
 
-function catBars(pairs, total) {
+function catBars(pairs, total, pick = false) {
   if (!pairs.length) return `<p class="empty">Nothing yet.</p>`;
   const max = pairs[0][1];
   return `<div class="bars">${pairs.map(([cat, v]) => `
-    <div class="bar-row">
+    <div class="bar-row ${pick ? "pick" : ""} ${pick && state.statCat === cat ? "on" : ""}" ${pick ? `data-statcat="${esc(cat)}" ${tipAttr(label(cat), `${eur(v)} a month`, `${pct(v / total)} of the total`, state.statCat === cat ? "Click again to close" : "Click to see it month by month")}` : ""}>
       <span class="bar-label">${glyph(cat)} ${esc(label(cat))}</span>
       <span class="bar-val">${eur0(v)} <span class="muted">${pct(v / total)}</span></span>
       <span class="bar-track"><span class="bar-fill" style="width:${(v / max) * 100}%;background:${colorOf(cat)}"></span></span>
@@ -145,27 +147,229 @@ function monthChart(months) {
     <text x="${pad.l - 5}" y="${y(v) + 3}" text-anchor="end">${compact(v)}</text>`).join("");
   const bars = months.map((m, i) => {
     const x = pad.l + i * slot + slot / 2;
-    return `<g class="mbar" data-month="${m.key}">
+    return `<g class="mbar" data-month="${m.key}" ${tipAttr(monthName(m.key), `Income ${eur0(m.income)}`, `Spent ${eur0(m.spent)}`, `Saved ${eur0(m.income - m.spent)}`, "Click to open the month")}>
       <rect class="hit" x="${x - slot / 2}" y="0" width="${slot}" height="${H}" rx="6" fill="transparent"/>
       <rect x="${x - bw - 1}" y="${y(m.income)}" width="${bw}" height="${H - pad.b - y(m.income)}" rx="2" fill="var(--pos)"/>
       <rect x="${x + 1}" y="${y(m.spent)}" width="${bw}" height="${H - pad.b - y(m.spent)}" rx="2" fill="var(--neg)"/>
       <text x="${x}" y="${H - 6}" text-anchor="middle" class="${m.key === now ? "cur" : ""}">${monthName(m.key, { month: "narrow" })}</text>
-      <title>${monthName(m.key)} — income ${eur0(m.income)}, spent ${eur0(m.spent)}</title>
     </g>`;
   }).join("");
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Income and spending per month">
     ${grid}${bars}</svg>
-    <div class="legend"><span><i style="background:var(--pos)"></i>Income</span><span><i style="background:var(--neg)"></i>Spent</span><span class="muted">Tap a month to open it</span></div>`;
+    <div class="legend"><span><i style="background:var(--pos)"></i>Income</span><span><i style="background:var(--neg)"></i>Spent</span><span class="muted">Click a month to open it</span></div>`;
 }
 
 // The month's spending as one stacked bar, then the biggest categories (the rest summed as "Other").
 function catStack(pairs, total) {
   if (!pairs.length) return `<p class="empty">Nothing spent yet.</p>`;
   const top = pairs.slice(0, 5), rest = pairs.slice(5).reduce((a, [, v]) => a + v, 0);
-  const parts = [...top.map(([c, v]) => [label(c), v, colorOf(c)]), ...(rest ? [["Other", rest, "#C9CED4"]] : [])];
-  return `<div class="stack">${parts.map(([, v, c]) => `<i style="flex:${v};background:${c}"></i>`).join("")}</div>
-    <div class="legend-list">${parts.map(([n, v, c]) => `<div><i style="background:${c}"></i><span>${esc(n)}</span><b>${eur0(v)}</b><em>${pct(v / total)}</em></div>`).join("")}</div>`;
+  const parts = [...top.map(([c, v]) => [label(c), v, colorOf(c), c]), ...(rest ? [["Other", rest, "#C9CED4", ""]] : [])];
+  const go = (cat, n, v) => (cat ? `data-cat="${esc(cat)}" ${tipAttr(n, `${eur(v)} · ${pct(v / total)}`, "Click to see these movements")}` : tipAttr(n, `${eur(v)} · ${pct(v / total)}`));
+  return `<div class="stack">${parts.map(([n, v, c, cat]) => `<i style="flex:${v};background:${c}" ${go(cat, n, v)}></i>`).join("")}</div>
+    <div class="legend-list">${parts.map(([n, v, c, cat]) => `<div class="${cat ? "go" : ""}" ${go(cat, n, v)}><i style="background:${c}"></i><span>${esc(n)}</span><b>${eur0(v)}</b><em>${pct(v / total)}</em></div>`).join("")}</div>`;
 }
+
+// ---------------------------------------------------------------- desktop charts (hover shows #tip, clicks drill in)
+const daysIn = (key) => new Date(+key.slice(0, 4), +key.slice(5, 7), 0).getDate();
+const spentOf = (es) => es.filter((e) => e.kind === "expense" && counts(e));
+// Spending per day of a month: index 1..days (0 stays empty).
+function dailySpent(key) {
+  const a = Array(daysIn(key) + 1).fill(0);
+  for (const e of spentOf(inMonth(key))) a[+e.date.slice(8)] += e.amount;
+  return a;
+}
+const running = (a) => { let s = 0; return a.map((v, i) => (i ? (s += v) : 0)); };
+const tipAttr = (...lines) => `data-tip="${esc(lines.filter(Boolean).join("\n"))}"`;
+
+// This month's running total against the usual one (the average of the previous 6 months with spending), the budget,
+// and, for the month in progress, where today's pace ends up. Hovering shows both values for that day.
+let pace = null;   // what the hover needs: the last pace chart drawn
+function paceChart(key) {
+  const today = todayIso(), days = daysIn(key);
+  const isNow = key === today.slice(0, 7);
+  if (key > today.slice(0, 7)) return "";
+  const last = isNow ? +today.slice(8) : days;
+  const mine = running(dailySpent(key));
+  const prev = Array.from({ length: 6 }, (_, i) => shiftMonth(key, -i - 1)).map((k) => running(dailySpent(k))).filter((a) => a.at(-1) > 0);
+  const usual = prev.length ? mine.map((_, i) => prev.reduce((s, a) => s + a[Math.min(i, a.length - 1)], 0) / prev.length) : null;
+  const budget = Number(state.settings.budget) || 0;
+  const projected = isNow && last > 2 ? (mine[last] / last) * days : null;
+  const W = 640, H = 210, pad = { l: 40, r: 14, t: 14, b: 24 };
+  const ticks = niceTicks(Math.max(mine[last], usual?.at(-1) || 0, budget, projected || 0) * 1.05);
+  const max = ticks.at(-1);
+  const x = (d) => pad.l + ((W - pad.l - pad.r) * d) / days;
+  const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - v / max);
+  const line = (a, n) => a.slice(0, n + 1).map((v, d) => `${d ? "L" : "M"}${x(d).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  pace = { key, days, last, mine, usual, x, y, W, pad, H };
+  const grid = ticks.map((v) => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/>
+    <text x="${pad.l - 6}" y="${y(v) + 3}" text-anchor="end">${compact(v)}</text>`).join("");
+  const xt = [1, 8, 15, 22, days].map((d) => `<text x="${x(d)}" y="${H - 6}" text-anchor="middle">${d}</text>`).join("");
+  return `<svg class="chart pace" viewBox="0 0 ${W} ${H}" role="img" aria-label="Spending pace">
+      <defs><linearGradient id="pace-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+      ${grid}${xt}
+      ${budget ? `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y(budget)}" y2="${y(budget)}" class="budget-line"/><text x="${W - pad.r}" y="${y(budget) - 5}" text-anchor="end" class="budget-txt">Budget ${eur0(budget)}</text>` : ""}
+      ${usual ? `<path d="${line(usual, days)}" class="usual-line"/>` : ""}
+      <path d="${line(mine, last)}L${x(last)},${y(0)}L${x(0)},${y(0)}Z" fill="url(#pace-fill)"/>
+      <path d="${line(mine, last)}" class="mine-line"/>
+      ${projected ? `<path d="M${x(last)},${y(mine[last])}L${x(days)},${y(projected)}" class="proj-line"/><circle cx="${x(days)}" cy="${y(projected)}" r="3.5" class="proj-dot"/>` : ""}
+      <circle cx="${x(last)}" cy="${y(mine[last])}" r="5" class="now-dot"/>
+      <g class="cross" visibility="hidden"><line y1="${pad.t}" y2="${H - pad.b}"/><circle r="4" class="c-mine"/><circle r="3.5" class="c-usual"/></g>
+      <rect class="pace-hit" x="${pad.l}" y="0" width="${W - pad.l - pad.r}" height="${H}" fill="transparent"/>
+    </svg>
+    <div class="legend"><span><i style="background:var(--accent)"></i>${esc(monthName(key, { month: "long" }))}</span>
+      ${usual ? `<span><i class="dash"></i>Usual (last ${prev.length} months)</span>` : ""}
+      ${budget ? `<span><i style="background:var(--neg)"></i>Budget</span>` : ""}
+      ${projected ? `<span class="muted">At this pace: <b>${eur0(projected)}</b> by the ${days}th</span>` : ""}</div>`;
+}
+function paceHover(ev) {
+  const svg = ev.target.closest(".pace");
+  if (!svg || !pace) return;
+  const r = svg.getBoundingClientRect(), p = pace;
+  const vx = ((ev.clientX - r.left) / r.width) * p.W;
+  const d = Math.max(1, Math.min(p.days, Math.round(((vx - p.pad.l) / (p.W - p.pad.l - p.pad.r)) * p.days)));
+  const g = $(".cross", svg);
+  g.setAttribute("visibility", "visible");
+  $("line", g).setAttribute("x1", p.x(d)); $("line", g).setAttribute("x2", p.x(d));
+  const cm = $(".c-mine", g), cu = $(".c-usual", g);
+  cm.style.display = d <= p.last ? "" : "none";
+  cm.setAttribute("cx", p.x(d)); cm.setAttribute("cy", p.y(p.mine[Math.min(d, p.last)]));
+  cu.style.display = p.usual ? "" : "none";
+  if (p.usual) { cu.setAttribute("cx", p.x(d)); cu.setAttribute("cy", p.y(p.usual[d])); }
+  const day = `${p.key}-${String(d).padStart(2, "0")}`;
+  showTip(ev, [dayName(day), d <= p.last ? `So far: ${eur0(p.mine[d])}` : "", p.usual ? `Usual: ${eur0(p.usual[d])}` : "",
+    d <= p.last && dailySpent(p.key)[d] ? `That day: ${eur(dailySpent(p.key)[d])}` : ""].filter(Boolean).join("\n"));
+}
+
+// The month as a calendar: darker squares for bigger days. A day with movements opens them; an empty one adds one.
+function calendar(key) {
+  const per = dailySpent(key), days = per.length - 1, today = todayIso();
+  const ws = state.settings.week_start === "sun" ? 0 : 1;
+  const offset = (new Date(+key.slice(0, 4), +key.slice(5, 7) - 1, 1).getDay() - ws + 7) % 7;
+  const names = ws ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const max = Math.max(...per, 1);
+  const incomeDays = new Set(inMonth(key).filter((e) => e.kind === "income").map((e) => e.date));
+  const cells = Array.from({ length: days }, (_, i) => {
+    const d = i + 1, iso = `${key}-${String(d).padStart(2, "0")}`, v = per[d], n = inMonth(key).filter((e) => e.date === iso && shown(e)).length;
+    const a = v ? 0.12 + 0.78 * Math.sqrt(v / max) : 0;
+    return `<button type="button" class="cal-day ${iso === today ? "today" : ""} ${a > 0.6 ? "dark" : ""}" data-day="${iso}" ${iso > today ? "disabled" : ""}
+      style="--a:${a.toFixed(3)}" ${tipAttr(dayName(iso), v ? `Spent ${eur(v)}` : "Nothing spent", n ? `${n} movement${n > 1 ? "s" : ""} · click to see` : iso <= today ? "Click to add one" : "")}>
+      <span>${d}</span>${incomeDays.has(iso) ? '<i class="inc"></i>' : ""}${v ? `<b>${compact(Math.round(v))}</b>` : ""}</button>`;
+  }).join("");
+  const spentDays = per.filter((v) => v > 0).length, elapsed = key === today.slice(0, 7) ? +today.slice(8) : days;
+  return `<div class="cal">${names.map((n) => `<span class="cal-h">${n}</span>`).join("")}${'<span></span>'.repeat(offset)}${cells}</div>
+    <div class="legend"><span>${spentDays} of ${elapsed} days with spending</span><span><i class="inc-key"></i>Income that day</span>
+      <span class="cal-scale">Less <i style="--a:.15"></i><i style="--a:.4"></i><i style="--a:.65"></i><i style="--a:.9"></i> More</span></div>`;
+}
+
+// Saved per month (income − spent) as bars above / below zero, with the running total as a line.
+function savedChart(months) {
+  const slot = 44, bw = 18, H = 200, pad = { t: 14, b: 24, l: 40, r: 44 };
+  const W = pad.l + slot * months.length + pad.r;
+  const vals = months.map((m) => m.income - m.spent), cum = running([0, ...vals]).slice(1);
+  // bars on the left scale, the running total on its own (right) scale, so neither squashes the other
+  const lo = Math.min(0, ...vals), hi = Math.max(0, ...vals, 100);
+  const span = hi - lo || 1, y = (v) => pad.t + (H - pad.t - pad.b) * ((hi - v) / span);
+  const clo = Math.min(0, ...cum), chi = Math.max(...cum, 1);
+  const yc = (v) => pad.t + (H - pad.t - pad.b) * ((chi - v) / (chi - clo || 1));
+  const cx = (i) => pad.l + i * slot + slot / 2;
+  const bars = months.map((m, i) => {
+    const v = vals[i];
+    return `<g class="mbar" data-month="${m.key}" ${tipAttr(monthName(m.key), `Saved ${eur0(v)}`, m.income ? `Savings rate ${pct(v / m.income)}` : "", `Running total ${eur0(cum[i])}`, "Click to open the month")}>
+      <rect class="hit" x="${cx(i) - slot / 2}" y="0" width="${slot}" height="${H}" rx="6" fill="transparent"/>
+      <rect x="${cx(i) - bw / 2}" y="${Math.min(y(v), y(0))}" width="${bw}" height="${Math.max(1, Math.abs(y(v) - y(0)))}" rx="3" fill="${v >= 0 ? "var(--pos)" : "var(--neg)"}"/>
+      <text x="${cx(i)}" y="${H - 6}" text-anchor="middle">${monthName(m.key, { month: "short" })}</text></g>`;
+  }).join("");
+  const path = cum.map((v, i) => `${i ? "L" : "M"}${cx(i)},${yc(v).toFixed(1)}`).join("");
+  return `<svg class="chart wide-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Saved per month">
+      <line x1="${pad.l}" x2="${W - pad.r}" y1="${y(0)}" y2="${y(0)}" stroke="var(--ink-2)" stroke-opacity=".35"/>
+      <text x="${pad.l - 6}" y="${y(hi) + 3}" text-anchor="end">${compact(Math.round(hi))}</text>
+      <text x="${pad.l - 6}" y="${y(0) + 3}" text-anchor="end">0</text>
+      ${lo < 0 ? `<text x="${pad.l - 6}" y="${y(lo) + 3}" text-anchor="end">−${compact(Math.round(-lo))}</text>` : ""}
+      <text x="${W - pad.r + 6}" y="${yc(chi) + 3}" class="cum-txt">${compact(Math.round(chi))}</text>
+      ${clo < 0 ? `<text x="${W - pad.r + 6}" y="${yc(clo) + 3}" class="cum-txt">−${compact(Math.round(-clo))}</text>` : ""}
+      ${bars}<path d="${path}" class="cum-line"/>${cum.map((v, i) => `<circle cx="${cx(i)}" cy="${yc(v)}" r="3" class="cum-dot"/>`).join("")}
+    </svg>
+    <div class="legend"><span><i style="background:var(--pos)"></i>Saved</span><span><i style="background:var(--neg)"></i>Overspent</span><span><i style="background:var(--ink)"></i>Running total (right scale)</span></div>`;
+}
+
+// Average spending per weekday over the period (total per weekday ÷ how many of that weekday there were).
+function weekdayChart(keys, entries) {
+  const ws = state.settings.week_start === "sun" ? 0 : 1, today = todayIso();
+  const tot = Array(7).fill(0), cnt = Array(7).fill(0);
+  for (const k of keys) for (let d = 1; d <= daysIn(k); d++) {
+    const iso = `${k}-${String(d).padStart(2, "0")}`;
+    if (iso <= today) cnt[new Date(iso + "T12:00").getDay()]++;
+  }
+  for (const e of entries) tot[new Date(e.date + "T12:00").getDay()] += e.amount;
+  const order = Array.from({ length: 7 }, (_, i) => (i + ws) % 7);
+  const avg = order.map((g) => (cnt[g] ? tot[g] / cnt[g] : 0)), max = Math.max(...avg, 1);
+  const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const top = avg.indexOf(Math.max(...avg));
+  return `<div class="wd">${order.map((g, i) => `<div class="wd-col ${i === top ? "top" : ""}" ${tipAttr(names[g], `${eur(avg[i])} on an average ${names[g]}`, `${eur0(tot[g])} over ${cnt[g]} days`)}>
+      <b>${eur0(avg[i])}</b><span class="wd-bar"><i style="height:${(avg[i] / max) * 100}%"></i></span><em>${names[g].slice(0, 3)}</em></div>`).join("")}</div>`;
+}
+
+// One category month by month (the bar picked in "Average per month by category").
+function categoryChart(cat, keys) {
+  const vals = keys.map((k) => inMonth(k).filter((e) => e.category === cat && (e.kind === "income" || counts(e))).reduce((a, e) => a + e.amount, 0));
+  const max = Math.max(...vals, 1), active = vals.filter((v) => v), avg = active.length ? active.reduce((a, b) => a + b, 0) / active.length : 0;
+  const c = colorOf(cat);
+  return `<div class="cm">${keys.map((k, i) => `<button type="button" class="cm-col mbar-btn" data-month="${k}" ${tipAttr(monthName(k), eur(vals[i]), avg && vals[i] ? `${vals[i] > avg ? "+" : "−"}${pct(Math.abs(vals[i] - avg) / avg)} vs its average` : "", "Click to open the month")}>
+      <span class="cm-bar"><i style="height:${(vals[i] / max) * 100}%;background:${c}"></i></span><em>${monthName(k, { month: "narrow" })}</em></button>`).join("")}
+      ${avg ? `<span class="cm-avg" style="bottom:calc(22px + ${(avg / max) * 130}px)"><span>avg ${eur0(avg)}</span></span>` : ""}</div>`;
+}
+
+// Settings > Gastos > Monthly budget: how much of it is gone, where you'd be at an even pace, what's left per day.
+function budgetBar(spent, upTo) {
+  const budget = Number(state.settings.budget) || 0;
+  if (!budget) return "";
+  const days = daysIn(state.month), isNow = upTo !== "31", left = budget - spent;
+  const even = isNow ? Number(upTo) / days : 1, daysLeft = days - Number(upTo) + 1;
+  const over = spent > budget, ahead = spent > budget * even;
+  return `<div class="budget ${over ? "over" : ahead ? "ahead" : ""}" ${tipAttr(`Budget ${eur(budget)}`, `Spent ${eur(spent)} (${pct(spent / budget)})`,
+      isNow ? `An even pace would be ${eur0(budget * even)} by today` : "")}>
+    <div class="budget-top"><span>${over ? `<b>${eur0(-left)}</b> over the ${eur0(budget)} budget` : `<b>${eur0(left)}</b> left of ${eur0(budget)}`}</span>
+      ${isNow && !over ? `<span class="muted">${eur0(left / daysLeft)}/day for ${daysLeft} more day${daysLeft > 1 ? "s" : ""}</span>` : ""}</div>
+    <div class="budget-track"><i style="width:${Math.min(100, (spent / budget) * 100)}%"></i>${isNow ? `<em style="left:${even * 100}%"></em>` : ""}</div>
+  </div>`;
+}
+
+// Go to a view (or stay) and bring one element of it into sight, flashing it.
+function jump(view, id) {
+  state.jumpTo = id;
+  if (route() === view) { render(); afterRender(); } else location.hash = view;
+}
+function afterRender() {
+  const id = state.jumpTo;
+  state.jumpTo = null;
+  const el = id && document.getElementById(id);
+  if (!el) return scrollTo(0, 0);
+  el.scrollIntoView({ block: "center", behavior: state.settings.motion === false ? "auto" : "smooth" });
+  el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+}
+
+// The floating tooltip used by every chart above (and anything else with data-tip).
+function showTip(ev, text) {
+  const tip = $("#tip");
+  tip.textContent = text;
+  tip.hidden = false;
+  const r = tip.getBoundingClientRect();
+  let left = ev.clientX + 14, top = ev.clientY + 16;
+  if (left + r.width > innerWidth - 8) left = ev.clientX - r.width - 14;
+  if (top + r.height > innerHeight - 8) top = ev.clientY - r.height - 12;
+  tip.style.transform = `translate(${left}px, ${top}px)`;
+}
+const hideTip = () => { const t = $("#tip"); if (t) t.hidden = true; };
+document.addEventListener("mousemove", (ev) => {
+  if (ev.target.closest?.(".pace")) return paceHover(ev);
+  const el = ev.target.closest?.("[data-tip]");
+  if (el) showTip(ev, el.dataset.tip); else hideTip();
+});
+document.addEventListener("mouseleave", hideTip);
+document.addEventListener("mouseout", (ev) => {
+  const svg = ev.target.closest?.(".pace");
+  if (svg && !svg.contains(ev.relatedTarget)) { $(".cross", svg)?.setAttribute("visibility", "hidden"); hideTip(); }
+});
 
 // Names are compared without case, accents, punctuation or emoji: "T-SHIRT 👕" and "t shirt" are the same.
 const norm = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
@@ -186,7 +390,7 @@ function nameList(kind) {
   return [...counts].map(([name, n]) => ({ name, n, key: norm(name) })).filter((x) => x.key).sort((a, b) => b.n - a.n);
 }
 
-// Movements' category filter: a button that opens a menu (a native <select> looks different on every phone).
+// Movements' category filter: a button that opens a menu (a native <select> looks different in every browser).
 function catPicker(kind, cat) {
   const item = (value, c, text) => `<button type="button" class="catopt ${value === cat ? "on" : ""}" data-cat="${esc(value)}">
     <span class="avatar sm" style="--c:${c ? colorOf(c) : "var(--ink-2)"}">${c ? glyph(c) : "✦"}</span><span>${esc(text)}</span>
@@ -234,13 +438,18 @@ const views = {
         <div class="duo">
           <div><span>Income</span><b class="pos">${eur0(t.income)}</b></div>
           <div><span>Saved</span><b class="${t.saved < 0 ? "neg" : ""}">${eur0(t.saved)}${t.rate === null ? "" : `<small>${pct(t.rate)}</small>`}</b></div>
+          <div><span>Movements</span><b>${month.filter(shown).length}</b></div>
+          ${t.spent ? `<div><span>Per day</span><b>${eur0(t.spent / (upTo === "31" ? daysIn(state.month) : Number(upTo)))}</b></div>` : ""}
         </div>
+        ${budgetBar(t.spent, upTo)}
       </div>
+      ${state.settings.pace_chart === false ? "" : `<section class="card wide"><h2>Spending pace <span class="h-sub">Running total through the month</span></h2>${paceChart(state.month)}</section>`}
       <section class="card"><h2>Where it went</h2>${catStack(byCat, t.spent)}</section>
       <section class="card">
         <h2>Biggest expenses <a href="#list" class="link">See all</a></h2>
         ${top.length ? `<div class="rows">${top.map((e) => row(e)).join("")}</div>` : `<p class="empty">Nothing spent this month yet.</p>`}
       </section>
+      ${state.settings.calendar === false ? "" : `<section class="card"><h2>Calendar <span class="h-sub">Click a day</span></h2>${calendar(state.month)}</section>`}
       ${earned.length ? `<section class="card"><h2>Biggest earnings &amp; losses</h2><div class="rows">${earned.map((e) => row(e)).join("")}</div></section>` : ""}`;
   },
 
@@ -281,7 +490,7 @@ const views = {
         const net = totals(es);
         const diff = net.income - net.spent;   // income and expenses on one day add up, with their sign
         const shownNet = net.spent || net.income ? `${diff < 0 ? "−" : "+"}${eur(Math.abs(diff))}` : "";
-        return `<section class="day"><h3>${esc(dayName(day))}<span class="${diff > 0 ? "pos" : ""}">${shownNet}</span></h3>
+        return `<section class="day" id="d-${day}"><h3>${esc(dayName(day))}<span class="${diff > 0 ? "pos" : ""}">${shownNet}</span></h3>
           <div class="rows">${es.map((e) => row(e)).join("")}</div></section>`;
       }).join("")}
       </div>`;
@@ -289,7 +498,8 @@ const views = {
 
   // Stats cover the last 12 months, or one calendar year (the chips at the top).
   stats() {
-    const period = state.period, keys = periodMonths(period), now = monthKey(new Date());
+    const period = state.period ??= state.settings.stats_period === "year" ? String(new Date().getFullYear()) : "12m";
+    const keys = periodMonths(period), now = monthKey(new Date());
     const months = keys.map((key) => ({ key, ...totals(inMonth(key)) }));
     const active = months.filter((m) => m.spent || m.income);
     const n = active.length || 1;
@@ -306,33 +516,42 @@ const views = {
     const income = sumBy(range.filter((e) => e.kind === "income"), (e) => e.category);
     const incomeTotal = income.reduce((a, [, v]) => a + v, 0);
     const chip = (v, txt) => `<button class="chip ${period === v ? "on" : ""}" data-period="${v}">${txt}</button>`;
+    const best = active.filter((m) => m.key !== now && m.spent > 0).sort((a, b) => a.spent - b.spent)[0];
     return `
       <div class="period wide">${chip("12m", "Last 12 months")}${years().map((y) => chip(y, y)).join("")}</div>
       <p class="summary wide">${period === "12m" ? `${esc(monthName(keys[0]))} – ${esc(monthName(now))}` : `January – December ${period}`}</p>
       <section class="tiles wide">
         <div class="tile"><span>Spent / month</span><b>${eur0(sum("spent") / n)}</b></div>
         <div class="tile"><span>Income / month</span><b class="pos">${eur0(sum("income") / n)}</b></div>
+        <div class="tile"><span>Saved / month</span><b class="${sum("income") - sum("spent") < 0 ? "neg" : ""}">${eur0((sum("income") - sum("spent")) / n)}</b></div>
         <div class="tile"><span>Savings rate</span><b>${sum("income") ? pct((sum("income") - sum("spent")) / sum("income")) : "—"}</b></div>
+        ${best ? `<div class="tile go" data-month="${best.key}" ${tipAttr("Click to open it")}><span>Cheapest month</span><b>${esc(monthName(best.key, { month: "short" }))} · ${eur0(best.spent)}</b></div>` : ""}
       </section>
       <section class="card wide"><h2>Income vs spent</h2>${monthChart(months)}</section>
-      <section class="card"><h2>Average per month by category</h2>${catBars(byCat, byCat.reduce((a, [, v]) => a + v, 0))}</section>
-      <section class="card"><h2>Where the money goes</h2>
-        ${places.length ? `<ol class="places">${places.map((p) => `<li><span>${glyph(p.cat)} ${esc(p.name)} <span class="muted">×${p.n}</span></span><b>${eur0(p.total)}</b></li>`).join("")}</ol>` : `<p class="empty">Nothing yet.</p>`}
+      <section class="card wide"><h2>Saved per month <span class="h-sub">Income minus spending, and the running total</span></h2>${savedChart(months)}</section>
+      <section class="card"><h2>Average per month by category <span class="h-sub">Click one</span></h2>${catBars(byCat, byCat.reduce((a, [, v]) => a + v, 0), true)}</section>
+      ${state.statCat ? `<section class="card" id="statcat"><h2><span class="h-title"><span class="h-ico">${glyph(state.statCat)}</span>${esc(label(state.statCat))}</span><span class="h-sub">Month by month</span><button type="button" class="x-btn" data-statcat="${esc(state.statCat)}" aria-label="Close">✕</button></h2>${categoryChart(state.statCat, keys)}
+        <p class="see"><button type="button" class="link" data-cat="${esc(state.statCat)}">See every movement →</button></p></section>` : ""}
+      <section class="card"><h2>Where the money goes <span class="h-sub">Click a name</span></h2>
+        ${places.length ? `<ol class="places">${places.map((p) => `<li data-q="${esc(p.name)}" ${tipAttr(p.name, `${eur(p.total)} in ${p.n} movement${p.n > 1 ? "s" : ""}`, `${eur(p.total / p.n)} each on average`, "Click to search for it")}><span>${glyph(p.cat)} ${esc(p.name)} <span class="muted">×${p.n}</span></span><b>${eur0(p.total)}</b></li>`).join("")}</ol>` : `<p class="empty">Nothing yet.</p>`}
       </section>
+      <section class="card"><h2>By day of the week <span class="h-sub">Average spent on each day</span></h2>${weekdayChart(keys, spentAll)}</section>
       <section class="card"><h2>Income sources</h2>${catBars(income, incomeTotal)}</section>`;
   },
 };
 
-function applyNav() {
-  const nav = state.settings.nav || "top";
-  document.documentElement.dataset.nav = nav;
-  try { localStorage.setItem("mymoney.nav", nav); } catch {}
+// Settings > Look: hide amounts, animations. The tabs always sit in the top bar (desktop only).
+function applyLook() {
+  const d = document.documentElement.dataset;
+  d.nav = "top";
+  d.privacy = state.settings.privacy ? "on" : "off";
+  d.motion = state.settings.motion === false ? "off" : "on";
 }
 
 async function loadSettings() {
   try {
     state.settings = (await store.settings()).values;
-    applyNav();
+    applyLook();
     render();
   } catch {}
 }
@@ -345,8 +564,8 @@ function parseAmount(text) {
   try { return Math.round(Function(`"use strict";return (${expr})`)() * 100) / 100; } catch { return NaN; }
 }
 
-function openSheet(entry = null) {
-  const e = entry || { kind: "expense", name: "", category: "", date: todayIso(), amount: "", gross: "", paid_by_other: false, note: "" };
+function openSheet(entry = null, defaults = {}) {
+  const e = entry || { kind: "expense", name: "", category: "", date: todayIso(), amount: "", gross: "", paid_by_other: false, note: "", ...defaults };
   const dlg = $("#sheet");
   let kind = e.kind, category = e.category, receipt = e.receipt || null, receiptFile = null, catTouched = !!entry;
 
@@ -569,8 +788,10 @@ function route() { return (location.hash.slice(1) || "home").split("?")[0]; }
 
 function render() {
   const r = views[route()] ? route() : "home";
-  $("#view").innerHTML = views[r]();
-  $("#view").dataset.view = r;
+  const view = $("#view"), fresh = view.dataset.view !== r;
+  view.innerHTML = views[r]();
+  view.dataset.view = r;
+  if (fresh) { view.classList.add("enter"); clearTimeout(render.t); render.t = setTimeout(() => view.classList.remove("enter"), 700); }   // cards fade in on a new view only
   document.querySelectorAll("[data-tab]").forEach((a) => a.classList.toggle("active", a.dataset.tab === r));
   $("#month").hidden = r === "stats";
   $("#month-label").textContent = monthShort(state.month);
@@ -594,6 +815,34 @@ async function reload() {
 
 // One set of listeners for everything drawn inside #view.
 $("#view").addEventListener("click", async (ev) => {
+  // Calendar: a day with movements shows them in Movements; an empty day opens a new one on that date.
+  const calDay = ev.target.closest(".cal-day");
+  if (calDay) {
+    const iso = calDay.dataset.day;
+    if (state.entries.some((e) => e.date === iso && shown(e))) {
+      Object.assign(state.list, { q: "", kind: "all", cat: "", sort: "date", catOpen: false });
+      return jump("list", `d-${iso}`);
+    }
+    return openSheet(null, { date: iso });
+  }
+  // A category (Home's "Where it went", Stats' "See every movement"): Movements filtered to it.
+  const goCat = ev.target.closest("[data-cat]:not(.catopt)");
+  if (goCat) {
+    const cat = goCat.dataset.cat, kind = categories("income").includes(cat) && !categories("expense").includes(cat) ? "income" : "expense";
+    // from Stats every month counts, so search by its name too (a search looks through all months)
+    Object.assign(state.list, { q: route() === "stats" ? label(cat) : "", kind, cat, sort: "date", catOpen: false });
+    return jump("list", null);
+  }
+  const statCat = ev.target.closest("[data-statcat]");
+  if (statCat) {
+    state.statCat = state.statCat === statCat.dataset.statcat ? "" : statCat.dataset.statcat;
+    return state.statCat ? jump("stats", "statcat") : render();
+  }
+  const place = ev.target.closest("[data-q]");
+  if (place) {
+    Object.assign(state.list, { q: place.dataset.q, kind: "expense", cat: "", sort: "date", catOpen: false });
+    return jump("list", null);
+  }
   const rowBtn = ev.target.closest(".row");
   if (rowBtn) return openSheet(state.entries.find((e) => e.id === rowBtn.dataset.id));
   const sortBtn = ev.target.closest("[data-sort]");
@@ -611,7 +860,7 @@ $("#view").addEventListener("click", async (ev) => {
     if (!ok) state.list.cat = "";
     return render();
   }
-  const bar = ev.target.closest(".mbar");
+  const bar = ev.target.closest(".mbar, .mbar-btn, .tile.go");
   if (bar) {
     state.month = bar.dataset.month;
     if (route() === "home") render(); else location.hash = "home";
@@ -647,7 +896,7 @@ function slideTo(key, dir) {
     width: `${r.width}px`, margin: "0", pointerEvents: "none" });
   state.month = key;
   render();
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches || state.settings.motion === false) return;
   document.body.append(ghost);
   document.documentElement.classList.add("sliding");
   const opts = { duration: 280, easing: "cubic-bezier(.32,.72,.24,1)", fill: "both" };
@@ -677,7 +926,7 @@ function drawMonthPop() {
     }).join("")}</div>
     <button type="button" class="today" data-m="${now}" ${state.month === now ? "disabled" : ""}>This month</button>`;
   $(".years .on", pop)?.scrollIntoView({ inline: "center", block: "nearest" });   // a long list of years opens on the current one
-  // Keep the popover on screen: it hangs from the button's right edge, so slide it back in if a narrow phone cuts it
+  // Keep the popover on screen: it hangs from the button's right edge, so slide it back in if the window cuts it
   pop.style.transform = "";
   const r = pop.getBoundingClientRect(), edge = 12, vw = document.documentElement.clientWidth;
   const dx = r.left < edge ? edge - r.left : r.right > vw - edge ? vw - edge - r.right : 0;
@@ -699,56 +948,8 @@ $("#month-pop").addEventListener("click", (ev) => {
 document.addEventListener("click", () => { if (monthPop.open) toggleMonthPop(false); });
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && monthPop.open) toggleMonthPop(false); });
 
-// Swipe left / right on Home and Movements for the next / previous month.
-let swipe = null;
-document.addEventListener("touchstart", (ev) => {
-  const ok = ev.touches.length === 1 && ["home", "list"].includes(route())
-    && !ev.target.closest("dialog, .chips, .sugg, input, select, .app-menu");
-  swipe = ok ? { x: ev.touches[0].clientX, y: ev.touches[0].clientY, t: Date.now() } : null;
-}, { passive: true });
-document.addEventListener("touchend", (ev) => {
-  if (!swipe) return;
-  const dx = ev.changedTouches[0].clientX - swipe.x, dy = ev.changedTouches[0].clientY - swipe.y;
-  const quick = Date.now() - swipe.t < 700;
-  swipe = null;
-  if (quick && Math.abs(dx) > 70 && Math.abs(dx) > 2 * Math.abs(dy)) stepMonth(dx < 0 ? 1 : -1);
-}, { passive: true });
 $("#add-top").addEventListener("click", () => openSheet());
 
-// Swipe the add sheet down to cancel it: drag from the top of the sheet (or anywhere while it is scrolled to the top).
-(() => {
-  const dlg = $("#sheet");
-  let drag = null;
-  dlg.addEventListener("touchstart", (ev) => {
-    const t = ev.touches[0];
-    drag = ev.touches.length === 1 && !ev.target.closest("input, textarea, .sugg, a")
-      && (dlg.scrollTop <= 0 || ev.target.closest(".grab"))
-      ? { y: t.clientY, x: t.clientX, dy: 0, on: false, t: Date.now() } : null;
-  }, { passive: true });
-  dlg.addEventListener("touchmove", (ev) => {
-    if (!drag) return;
-    const t = ev.touches[0], dy = t.clientY - drag.y;
-    if (!drag.on) {
-      if (dy < 8 || Math.abs(t.clientX - drag.x) > dy) { if (dy < -8) drag = null; return; }  // upwards or sideways: not a swipe down
-      drag.on = true;
-      dlg.style.transition = "none";
-    }
-    drag.dy = Math.max(0, dy);
-    dlg.style.transform = `translateY(${drag.dy}px)`;
-    ev.preventDefault();   // the sheet follows the finger instead of scrolling
-  }, { passive: false });
-  const end = () => {
-    if (!drag?.on) { drag = null; return; }
-    const fast = drag.dy / (Date.now() - drag.t) > 0.5;
-    const close = drag.dy > 110 || (fast && drag.dy > 40);
-    drag = null;
-    dlg.style.transition = "transform .2s ease-out";
-    dlg.style.transform = close ? "translateY(100%)" : "";
-    setTimeout(() => { dlg.style.transition = ""; if (close) { dlg.close(); } dlg.style.transform = ""; }, 200);
-  };
-  dlg.addEventListener("touchend", end);
-  dlg.addEventListener("touchcancel", end);
-})();
 // ⚙: the settings sheet shared with Portfolio (../../static/settings.js)
 $("#open-settings").addEventListener("click", async () => {
   try {
@@ -759,15 +960,32 @@ $("#open-settings").addEventListener("click", async () => {
       onChange(name, value, values) {
         state.settings = values;
         if (name === "demo") return location.reload();
-        if (name === "nav") applyNav();
+        if (name === "stats_period") state.period = null;
+        applyLook();
         render();
       },
     });
   } catch (err) { toast(err.message, true); }
 });
-window.addEventListener("hashchange", () => { render(); scrollTo(0, 0); });
+window.addEventListener("hashchange", () => { hideTip(); render(); afterRender(); });
 
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+// ---------------------------------------------------------------- keyboard (desktop)
+// ← → months · 1 2 3 views · N new movement · / search · H hide amounts · , settings
+document.addEventListener("keydown", (ev) => {
+  if (ev.metaKey || ev.ctrlKey || ev.altKey || ev.target.closest("input, textarea, select, dialog") || $("dialog[open]")) return;
+  const k = ev.key.toLowerCase();
+  if (k === "arrowleft" || k === "arrowright") { if (route() !== "stats") stepMonth(k === "arrowright" ? 1 : -1); }
+  else if (["1", "2", "3"].includes(k)) location.hash = ["home", "list", "stats"][+k - 1];
+  else if (k === "n") openSheet();
+  else if (k === "/") { ev.preventDefault(); if (route() !== "list") location.hash = "list"; setTimeout(() => $("#q")?.focus(), 30); }
+  else if (k === "h") { const d = document.documentElement.dataset; d.privacy = d.privacy === "on" ? "off" : "on"; }
+  else if (k === ",") $("#open-settings").click();
+  else return;
+  ev.preventDefault();
+});
+
+// Desktop only: no offline app. Remove the worker an older version may have installed.
+navigator.serviceWorker?.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});
 import("/static/settings.js").then((m) => m.reloadWhenDemoChanges()).catch(() => {});
 loadSettings();
 reload();
