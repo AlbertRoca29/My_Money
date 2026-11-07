@@ -27,6 +27,10 @@ const eur0Fmt = new Intl.NumberFormat("es-ES", { style: "currency", currency: "E
 const eur = (n) => eurFmt.format(n);
 const eur0 = (n) => eur0Fmt.format(n);
 const pct = (n) => `${Math.round(n * 100)}%`;
+// Phones (and narrow windows): tabs at the bottom, charts drawn at the card's real width so their labels stay readable.
+const PHONE = matchMedia("(max-width: 899px)");
+// A card's inner width there: <main> is at most 640px wide with 16px padding each side, a card has 18px.
+const cardWidth = () => Math.max(260, Math.min(document.documentElement.clientWidth, 640) - 32 - 36);
 
 function monthKey(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
 function shiftMonth(key, step) { const [y, m] = key.split("-").map(Number); return monthKey(new Date(y, m - 1 + step, 1)); }
@@ -137,7 +141,8 @@ function niceTicks(max) {
 const compact = (v) => (v >= 1000 ? `${+(v / 1000).toFixed(1)}k` : String(v));
 
 function monthChart(months) {
-  const slot = 30, bw = 9, H = 170, pad = { t: 10, b: 24, l: 26 };
+  const phone = PHONE.matches, H = 170, pad = { t: 10, b: 24, l: 26 };
+  const slot = phone ? (cardWidth() - pad.l) / months.length : 30, bw = phone ? Math.min(9, slot * 0.32) : 9;
   const W = pad.l + slot * months.length;
   const ticks = niceTicks(Math.max(...months.flatMap((m) => [m.income, m.spent])));
   const max = ticks.at(-1);
@@ -147,16 +152,16 @@ function monthChart(months) {
     <text x="${pad.l - 5}" y="${y(v) + 3}" text-anchor="end">${compact(v)}</text>`).join("");
   const bars = months.map((m, i) => {
     const x = pad.l + i * slot + slot / 2;
-    return `<g class="mbar" data-month="${m.key}" ${tipAttr(monthName(m.key), `Income ${eur0(m.income)}`, `Spent ${eur0(m.spent)}`, `Saved ${eur0(m.income - m.spent)}`, "Click to open the month")}>
+    return `<g class="mbar" data-month="${m.key}" ${tipAttr(monthName(m.key), `Income ${eur0(m.income)}`, `Spent ${eur0(m.spent)}`, `Saved ${eur0(m.income - m.spent)}`, phone ? "Tap again to open the month" : "Click to open the month")}>
       <rect class="hit" x="${x - slot / 2}" y="0" width="${slot}" height="${H}" rx="6" fill="transparent"/>
       <rect x="${x - bw - 1}" y="${y(m.income)}" width="${bw}" height="${H - pad.b - y(m.income)}" rx="2" fill="var(--pos)"/>
       <rect x="${x + 1}" y="${y(m.spent)}" width="${bw}" height="${H - pad.b - y(m.spent)}" rx="2" fill="var(--neg)"/>
-      <text x="${x}" y="${H - 6}" text-anchor="middle" class="${m.key === now ? "cur" : ""}">${monthName(m.key, { month: "narrow" })}</text>
+      <text x="${x}" y="${H - 6}" text-anchor="middle" class="m ${m.key === now ? "cur" : ""}">${monthName(m.key, { month: "narrow" })}</text>
     </g>`;
   }).join("");
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Income and spending per month">
     ${grid}${bars}</svg>
-    <div class="legend"><span><i style="background:var(--pos)"></i>Income</span><span><i style="background:var(--neg)"></i>Spent</span><span class="muted">Click a month to open it</span></div>`;
+    <div class="legend"><span><i style="background:var(--pos)"></i>Income</span><span><i style="background:var(--neg)"></i>Spent</span><span class="muted">${phone ? "Tap a month for details" : "Click a month to open it"}</span></div>`;
 }
 
 // The month's spending as one stacked bar, then the biggest categories (the rest summed as "Other").
@@ -181,89 +186,34 @@ function dailySpent(key) {
 const running = (a) => { let s = 0; return a.map((v, i) => (i ? (s += v) : 0)); };
 const tipAttr = (...lines) => `data-tip="${esc(lines.filter(Boolean).join("\n"))}"`;
 
-// This month's running total against the usual one (the average of the previous 6 months with spending), the budget,
-// and, for the month in progress, where today's pace ends up. Hovering shows both values for that day.
-let pace = null;   // what the hover needs: the last pace chart drawn
-function paceChart(key) {
-  const today = todayIso(), days = daysIn(key);
-  const isNow = key === today.slice(0, 7);
-  if (key > today.slice(0, 7)) return "";
-  const last = isNow ? +today.slice(8) : days;
-  const mine = running(dailySpent(key));
-  const prev = Array.from({ length: 6 }, (_, i) => shiftMonth(key, -i - 1)).map((k) => running(dailySpent(k))).filter((a) => a.at(-1) > 0);
-  const usual = prev.length ? mine.map((_, i) => prev.reduce((s, a) => s + a[Math.min(i, a.length - 1)], 0) / prev.length) : null;
-  const budget = Number(state.settings.budget) || 0;
-  const projected = isNow && last > 2 ? (mine[last] / last) * days : null;
-  const W = 640, H = 210, pad = { l: 40, r: 14, t: 14, b: 24 };
-  const ticks = niceTicks(Math.max(mine[last], usual?.at(-1) || 0, budget, projected || 0) * 1.05);
-  const max = ticks.at(-1);
-  const x = (d) => pad.l + ((W - pad.l - pad.r) * d) / days;
-  const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - v / max);
-  const line = (a, n) => a.slice(0, n + 1).map((v, d) => `${d ? "L" : "M"}${x(d).toFixed(1)},${y(v).toFixed(1)}`).join("");
-  pace = { key, days, last, mine, usual, x, y, W, pad, H };
-  const grid = ticks.map((v) => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/>
-    <text x="${pad.l - 6}" y="${y(v) + 3}" text-anchor="end">${compact(v)}</text>`).join("");
-  const xt = [1, 8, 15, 22, days].map((d) => `<text x="${x(d)}" y="${H - 6}" text-anchor="middle">${d}</text>`).join("");
-  return `<svg class="chart pace" viewBox="0 0 ${W} ${H}" role="img" aria-label="Spending pace">
-      <defs><linearGradient id="pace-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
-      ${grid}${xt}
-      ${budget ? `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y(budget)}" y2="${y(budget)}" class="budget-line"/><text x="${W - pad.r}" y="${y(budget) - 5}" text-anchor="end" class="budget-txt">Budget ${eur0(budget)}</text>` : ""}
-      ${usual ? `<path d="${line(usual, days)}" class="usual-line"/>` : ""}
-      <path d="${line(mine, last)}L${x(last)},${y(0)}L${x(0)},${y(0)}Z" fill="url(#pace-fill)"/>
-      <path d="${line(mine, last)}" class="mine-line"/>
-      ${projected ? `<path d="M${x(last)},${y(mine[last])}L${x(days)},${y(projected)}" class="proj-line"/><circle cx="${x(days)}" cy="${y(projected)}" r="3.5" class="proj-dot"/>` : ""}
-      <circle cx="${x(last)}" cy="${y(mine[last])}" r="5" class="now-dot"/>
-      <g class="cross" visibility="hidden"><line y1="${pad.t}" y2="${H - pad.b}"/><circle r="4" class="c-mine"/><circle r="3.5" class="c-usual"/></g>
-      <rect class="pace-hit" x="${pad.l}" y="0" width="${W - pad.l - pad.r}" height="${H}" fill="transparent"/>
-    </svg>
-    <div class="legend"><span><i style="background:var(--accent)"></i>${esc(monthName(key, { month: "long" }))}</span>
-      ${usual ? `<span><i class="dash"></i>Usual (last ${prev.length} months)</span>` : ""}
-      ${budget ? `<span><i style="background:var(--neg)"></i>Budget</span>` : ""}
-      ${projected ? `<span class="muted">At this pace: <b>${eur0(projected)}</b> by the ${days}th</span>` : ""}</div>`;
-}
-function paceHover(ev) {
-  const svg = ev.target.closest(".pace");
-  if (!svg || !pace) return;
-  const r = svg.getBoundingClientRect(), p = pace;
-  const vx = ((ev.clientX - r.left) / r.width) * p.W;
-  const d = Math.max(1, Math.min(p.days, Math.round(((vx - p.pad.l) / (p.W - p.pad.l - p.pad.r)) * p.days)));
-  const g = $(".cross", svg);
-  g.setAttribute("visibility", "visible");
-  $("line", g).setAttribute("x1", p.x(d)); $("line", g).setAttribute("x2", p.x(d));
-  const cm = $(".c-mine", g), cu = $(".c-usual", g);
-  cm.style.display = d <= p.last ? "" : "none";
-  cm.setAttribute("cx", p.x(d)); cm.setAttribute("cy", p.y(p.mine[Math.min(d, p.last)]));
-  cu.style.display = p.usual ? "" : "none";
-  if (p.usual) { cu.setAttribute("cx", p.x(d)); cu.setAttribute("cy", p.y(p.usual[d])); }
-  const day = `${p.key}-${String(d).padStart(2, "0")}`;
-  showTip(ev, [dayName(day), d <= p.last ? `So far: ${eur0(p.mine[d])}` : "", p.usual ? `Usual: ${eur0(p.usual[d])}` : "",
-    d <= p.last && dailySpent(p.key)[d] ? `That day: ${eur(dailySpent(p.key)[d])}` : ""].filter(Boolean).join("\n"));
-}
-
 // The month as a calendar: darker squares for bigger days. A day with movements opens them; an empty one adds one.
 function calendar(key) {
   const per = dailySpent(key), days = per.length - 1, today = todayIso();
   const ws = state.settings.week_start === "sun" ? 0 : 1;
   const offset = (new Date(+key.slice(0, 4), +key.slice(5, 7) - 1, 1).getDay() - ws + 7) % 7;
-  const names = ws ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const names = (ws ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"])
+    .map((n) => (PHONE.matches ? n[0] : n));
   const max = Math.max(...per, 1);
-  const incomeDays = new Set(inMonth(key).filter((e) => e.kind === "income").map((e) => e.date));
   const cells = Array.from({ length: days }, (_, i) => {
     const d = i + 1, iso = `${key}-${String(d).padStart(2, "0")}`, v = per[d], n = inMonth(key).filter((e) => e.date === iso && shown(e)).length;
     const a = v ? 0.12 + 0.78 * Math.sqrt(v / max) : 0;
     return `<button type="button" class="cal-day ${iso === today ? "today" : ""} ${a > 0.6 ? "dark" : ""}" data-day="${iso}" ${iso > today ? "disabled" : ""}
       style="--a:${a.toFixed(3)}" ${tipAttr(dayName(iso), v ? `Spent ${eur(v)}` : "Nothing spent", n ? `${n} movement${n > 1 ? "s" : ""} · click to see` : iso <= today ? "Click to add one" : "")}>
-      <span>${d}</span>${incomeDays.has(iso) ? '<i class="inc"></i>' : ""}${v ? `<b>${compact(Math.round(v))}</b>` : ""}</button>`;
+      <span>${d}</span>${v ? `<b>${compact(Math.round(v))}</b>` : ""}</button>`;
   }).join("");
   const spentDays = per.filter((v) => v > 0).length, elapsed = key === today.slice(0, 7) ? +today.slice(8) : days;
   return `<div class="cal">${names.map((n) => `<span class="cal-h">${n}</span>`).join("")}${'<span></span>'.repeat(offset)}${cells}</div>
-    <div class="legend"><span>${spentDays} of ${elapsed} days with spending</span><span><i class="inc-key"></i>Income that day</span>
+    <div class="legend"><span>${spentDays} of ${elapsed} days with spending</span>
       <span class="cal-scale">Less <i style="--a:.15"></i><i style="--a:.4"></i><i style="--a:.65"></i><i style="--a:.9"></i> More</span></div>`;
 }
 
 // Saved per month (income − spent) as bars above / below zero, with the running total as a line.
+// On a phone it is drawn at the card's real width (labels keep their size), one letter per month, and the running
+// total's scale moves into the legend so the bars get the room.
 function savedChart(months) {
-  const slot = 44, bw = 18, H = 200, pad = { t: 14, b: 24, l: 40, r: 44 };
+  const phone = PHONE.matches, H = phone ? 180 : 200;
+  const pad = phone ? { t: 12, b: 22, l: 32, r: 6 } : { t: 14, b: 24, l: 40, r: 44 };
+  const slot = phone ? (cardWidth() - pad.l - pad.r) / months.length : 44, bw = phone ? Math.min(16, slot * 0.55) : 18;
   const W = pad.l + slot * months.length + pad.r;
   const vals = months.map((m) => m.income - m.spent), cum = running([0, ...vals]).slice(1);
   // bars on the left scale, the running total on its own (right) scale, so neither squashes the other
@@ -272,41 +222,26 @@ function savedChart(months) {
   const clo = Math.min(0, ...cum), chi = Math.max(...cum, 1);
   const yc = (v) => pad.t + (H - pad.t - pad.b) * ((chi - v) / (chi - clo || 1));
   const cx = (i) => pad.l + i * slot + slot / 2;
+  const now = monthKey(new Date());
   const bars = months.map((m, i) => {
     const v = vals[i];
-    return `<g class="mbar" data-month="${m.key}" ${tipAttr(monthName(m.key), `Saved ${eur0(v)}`, m.income ? `Savings rate ${pct(v / m.income)}` : "", `Running total ${eur0(cum[i])}`, "Click to open the month")}>
+    return `<g class="mbar" data-month="${m.key}" ${tipAttr(monthName(m.key), `Saved ${eur0(v)}`, m.income ? `Savings rate ${pct(v / m.income)}` : "", `Running total ${eur0(cum[i])}`, phone ? "Tap again to open the month" : "Click to open the month")}>
       <rect class="hit" x="${cx(i) - slot / 2}" y="0" width="${slot}" height="${H}" rx="6" fill="transparent"/>
       <rect x="${cx(i) - bw / 2}" y="${Math.min(y(v), y(0))}" width="${bw}" height="${Math.max(1, Math.abs(y(v) - y(0)))}" rx="3" fill="${v >= 0 ? "var(--pos)" : "var(--neg)"}"/>
-      <text x="${cx(i)}" y="${H - 6}" text-anchor="middle">${monthName(m.key, { month: "short" })}</text></g>`;
+      <text x="${cx(i)}" y="${H - 6}" text-anchor="middle" class="m ${m.key === now ? "cur" : ""}">${monthName(m.key, { month: phone ? "narrow" : "short" })}</text></g>`;
   }).join("");
-  const path = cum.map((v, i) => `${i ? "L" : "M"}${cx(i)},${yc(v).toFixed(1)}`).join("");
+  const path = cum.map((v, i) => `${i ? "L" : "M"}${cx(i).toFixed(1)},${yc(v).toFixed(1)}`).join("");
   return `<svg class="chart wide-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Saved per month">
       <line x1="${pad.l}" x2="${W - pad.r}" y1="${y(0)}" y2="${y(0)}" stroke="var(--ink-2)" stroke-opacity=".35"/>
-      <text x="${pad.l - 6}" y="${y(hi) + 3}" text-anchor="end">${compact(Math.round(hi))}</text>
+      ${y(0) - y(hi) > 12 ? `<text x="${pad.l - 6}" y="${y(hi) + 3}" text-anchor="end">${compact(Math.round(hi))}</text>` : ""}
       <text x="${pad.l - 6}" y="${y(0) + 3}" text-anchor="end">0</text>
-      ${lo < 0 ? `<text x="${pad.l - 6}" y="${y(lo) + 3}" text-anchor="end">−${compact(Math.round(-lo))}</text>` : ""}
-      <text x="${W - pad.r + 6}" y="${yc(chi) + 3}" class="cum-txt">${compact(Math.round(chi))}</text>
-      ${clo < 0 ? `<text x="${W - pad.r + 6}" y="${yc(clo) + 3}" class="cum-txt">−${compact(Math.round(-clo))}</text>` : ""}
-      ${bars}<path d="${path}" class="cum-line"/>${cum.map((v, i) => `<circle cx="${cx(i)}" cy="${yc(v)}" r="3" class="cum-dot"/>`).join("")}
+      ${lo < 0 && y(lo) - y(0) > 12 ? `<text x="${pad.l - 6}" y="${y(lo) + 3}" text-anchor="end">−${compact(Math.round(-lo))}</text>` : ""}
+      ${phone ? "" : `<text x="${W - pad.r + 6}" y="${yc(chi) + 3}" class="cum-txt">${compact(Math.round(chi))}</text>
+      ${clo < 0 ? `<text x="${W - pad.r + 6}" y="${yc(clo) + 3}" class="cum-txt">−${compact(Math.round(-clo))}</text>` : ""}`}
+      ${bars}<path d="${path}" class="cum-line"/>${cum.map((v, i) => `<circle cx="${cx(i).toFixed(1)}" cy="${yc(v).toFixed(1)}" r="${phone ? 2.5 : 3}" class="cum-dot"/>`).join("")}
     </svg>
-    <div class="legend"><span><i style="background:var(--pos)"></i>Saved</span><span><i style="background:var(--neg)"></i>Overspent</span><span><i style="background:var(--ink)"></i>Running total (right scale)</span></div>`;
-}
-
-// Average spending per weekday over the period (total per weekday ÷ how many of that weekday there were).
-function weekdayChart(keys, entries) {
-  const ws = state.settings.week_start === "sun" ? 0 : 1, today = todayIso();
-  const tot = Array(7).fill(0), cnt = Array(7).fill(0);
-  for (const k of keys) for (let d = 1; d <= daysIn(k); d++) {
-    const iso = `${k}-${String(d).padStart(2, "0")}`;
-    if (iso <= today) cnt[new Date(iso + "T12:00").getDay()]++;
-  }
-  for (const e of entries) tot[new Date(e.date + "T12:00").getDay()] += e.amount;
-  const order = Array.from({ length: 7 }, (_, i) => (i + ws) % 7);
-  const avg = order.map((g) => (cnt[g] ? tot[g] / cnt[g] : 0)), max = Math.max(...avg, 1);
-  const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const top = avg.indexOf(Math.max(...avg));
-  return `<div class="wd">${order.map((g, i) => `<div class="wd-col ${i === top ? "top" : ""}" ${tipAttr(names[g], `${eur(avg[i])} on an average ${names[g]}`, `${eur0(tot[g])} over ${cnt[g]} days`)}>
-      <b>${eur0(avg[i])}</b><span class="wd-bar"><i style="height:${(avg[i] / max) * 100}%"></i></span><em>${names[g].slice(0, 3)}</em></div>`).join("")}</div>`;
+    <div class="legend"><span><i style="background:var(--pos)"></i>Saved</span><span><i style="background:var(--neg)"></i>Overspent</span>
+      <span><i style="background:var(--ink)"></i>${phone ? `Running total <b>${eur0(cum.at(-1))}</b>` : "Running total (right scale)"}</span></div>`;
 }
 
 // One category month by month (the bar picked in "Average per month by category").
@@ -348,28 +283,52 @@ function afterRender() {
   el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
 }
 
-// The floating tooltip used by every chart above (and anything else with data-tip).
+// The floating tooltip used by every chart above (and anything else with data-tip). With a mouse it follows the
+// pointer; on a touch screen it shows above the finger, centred on it, so the finger doesn't hide it.
+let touching = false;   // the last pointer was a finger
 function showTip(ev, text) {
   const tip = $("#tip");
-  tip.textContent = text;
-  tip.hidden = false;
-  const r = tip.getBoundingClientRect();
-  let left = ev.clientX + 14, top = ev.clientY + 16;
-  if (left + r.width > innerWidth - 8) left = ev.clientX - r.width - 14;
-  if (top + r.height > innerHeight - 8) top = ev.clientY - r.height - 12;
+  if (tip.hidden || tip.textContent !== text) { tip.textContent = text; tip.hidden = false; }
+  const r = tip.getBoundingClientRect(), vw = document.documentElement.clientWidth, edge = 8;
+  let left, top;
+  if (touching) {
+    left = Math.max(edge, Math.min(vw - r.width - edge, ev.clientX - r.width / 2));
+    top = ev.clientY - r.height - 22;
+    if (top < edge) top = ev.clientY + 26;
+  } else {
+    left = ev.clientX + 14; top = ev.clientY + 16;
+    if (left + r.width > vw - edge) left = ev.clientX - r.width - 14;
+    if (top + r.height > innerHeight - edge) top = ev.clientY - r.height - 12;
+  }
   tip.style.transform = `translate(${left}px, ${top}px)`;
 }
-const hideTip = () => { const t = $("#tip"); if (t) t.hidden = true; };
+const hideTip = () => {
+  const t = $("#tip");
+  if (t) t.hidden = true;
+  document.querySelectorAll(".mbar.on, .mbar-btn.on").forEach((b) => b.classList.remove("on"));
+};
+document.addEventListener("pointerdown", (ev) => { touching = ev.pointerType !== "mouse"; }, { capture: true, passive: true });
+document.addEventListener("pointermove", (ev) => { if (ev.pointerType === "mouse") touching = false; }, { passive: true });
 document.addEventListener("mousemove", (ev) => {
-  if (ev.target.closest?.(".pace")) return paceHover(ev);
+  if (touching) return;   // a tap also sends a mousemove: on touch the click handler below decides
   const el = ev.target.closest?.("[data-tip]");
   if (el) showTip(ev, el.dataset.tip); else hideTip();
 });
 document.addEventListener("mouseleave", hideTip);
-document.addEventListener("mouseout", (ev) => {
-  const svg = ev.target.closest?.(".pace");
-  if (svg && !svg.contains(ev.relatedTarget)) { $(".cross", svg)?.setAttribute("visibility", "hidden"); hideTip(); }
-});
+addEventListener("scroll", () => { if (touching) hideTip(); }, { passive: true });
+// Touch: the first tap on a chart bar only shows its numbers; a second tap on the same bar opens it.
+// Returns true when the tap was used for that.
+function touchTip(ev) {
+  if (!touching) return false;
+  const el = ev.target.closest("[data-tip]"), bar = el?.closest(".mbar, .mbar-btn");
+  const first = bar && !bar.classList.contains("on");
+  hideTip();
+  if (first) { showTip(ev, el.dataset.tip); bar.classList.add("on"); return true; }
+  // something that only informs (no action of its own): the tap shows its numbers
+  if (el && !bar && !el.matches("button, a, .go, [data-cat], [data-q], [data-statcat]")) { showTip(ev, el.dataset.tip); return true; }
+  return false;   // anything else acts at once, with no tooltip left behind
+}
+document.addEventListener("click", (ev) => { if (touching && !ev.target.closest("#view [data-tip]")) hideTip(); });
 
 // Names are compared without case, accents, punctuation or emoji: "T-SHIRT 👕" and "t shirt" are the same.
 const norm = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
@@ -443,13 +402,12 @@ const views = {
         </div>
         ${budgetBar(t.spent, upTo)}
       </div>
-      ${state.settings.pace_chart === false ? "" : `<section class="card wide"><h2>Spending pace <span class="h-sub">Running total through the month</span></h2>${paceChart(state.month)}</section>`}
       <section class="card"><h2>Where it went</h2>${catStack(byCat, t.spent)}</section>
       <section class="card">
         <h2>Biggest expenses <a href="#list" class="link">See all</a></h2>
         ${top.length ? `<div class="rows">${top.map((e) => row(e)).join("")}</div>` : `<p class="empty">Nothing spent this month yet.</p>`}
       </section>
-      ${state.settings.calendar === false ? "" : `<section class="card"><h2>Calendar <span class="h-sub">Click a day</span></h2>${calendar(state.month)}</section>`}
+      ${state.settings.calendar === false ? "" : `<section class="card"><h2>Calendar <span class="h-sub">${PHONE.matches ? "Tap" : "Click"} a day</span></h2>${calendar(state.month)}</section>`}
       ${earned.length ? `<section class="card"><h2>Biggest earnings &amp; losses</h2><div class="rows">${earned.map((e) => row(e)).join("")}</div></section>` : ""}`;
   },
 
@@ -529,21 +487,19 @@ const views = {
       </section>
       <section class="card wide"><h2>Income vs spent</h2>${monthChart(months)}</section>
       <section class="card wide"><h2>Saved per month <span class="h-sub">Income minus spending, and the running total</span></h2>${savedChart(months)}</section>
-      <section class="card"><h2>Average per month by category <span class="h-sub">Click one</span></h2>${catBars(byCat, byCat.reduce((a, [, v]) => a + v, 0), true)}</section>
+      <section class="card"><h2>Average per month by category <span class="h-sub">${PHONE.matches ? "Tap" : "Click"} one</span></h2>${catBars(byCat, byCat.reduce((a, [, v]) => a + v, 0), true)}</section>
       ${state.statCat ? `<section class="card" id="statcat"><h2><span class="h-title"><span class="h-ico">${glyph(state.statCat)}</span>${esc(label(state.statCat))}</span><span class="h-sub">Month by month</span><button type="button" class="x-btn" data-statcat="${esc(state.statCat)}" aria-label="Close">✕</button></h2>${categoryChart(state.statCat, keys)}
         <p class="see"><button type="button" class="link" data-cat="${esc(state.statCat)}">See every movement →</button></p></section>` : ""}
-      <section class="card"><h2>Where the money goes <span class="h-sub">Click a name</span></h2>
+      <section class="card"><h2>Where the money goes <span class="h-sub">${PHONE.matches ? "Tap" : "Click"} a name</span></h2>
         ${places.length ? `<ol class="places">${places.map((p) => `<li data-q="${esc(p.name)}" ${tipAttr(p.name, `${eur(p.total)} in ${p.n} movement${p.n > 1 ? "s" : ""}`, `${eur(p.total / p.n)} each on average`, "Click to search for it")}><span>${glyph(p.cat)} ${esc(p.name)} <span class="muted">×${p.n}</span></span><b>${eur0(p.total)}</b></li>`).join("")}</ol>` : `<p class="empty">Nothing yet.</p>`}
       </section>
-      <section class="card"><h2>By day of the week <span class="h-sub">Average spent on each day</span></h2>${weekdayChart(keys, spentAll)}</section>
       <section class="card"><h2>Income sources</h2>${catBars(income, incomeTotal)}</section>`;
   },
 };
 
-// Settings > Look: hide amounts, animations. The tabs always sit in the top bar (desktop only).
+// Settings > Look: hide amounts, animations.
 function applyLook() {
   const d = document.documentElement.dataset;
-  d.nav = "top";
   d.privacy = state.settings.privacy ? "on" : "off";
   d.motion = state.settings.motion === false ? "off" : "on";
 }
@@ -815,6 +771,7 @@ async function reload() {
 
 // One set of listeners for everything drawn inside #view.
 $("#view").addEventListener("click", async (ev) => {
+  if (touchTip(ev)) return;
   // Calendar: a day with movements shows them in Movements; an empty day opens a new one on that date.
   const calDay = ev.target.closest(".cal-day");
   if (calDay) {
@@ -948,6 +905,68 @@ $("#month-pop").addEventListener("click", (ev) => {
 document.addEventListener("click", () => { if (monthPop.open) toggleMonthPop(false); });
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && monthPop.open) toggleMonthPop(false); });
 
+// Swipe left / right on Home and Movements for the next / previous month.
+let swipe = null;
+document.addEventListener("touchstart", (ev) => {
+  const ok = ev.touches.length === 1 && ["home", "list"].includes(route()) && !$("dialog[open]")
+    && !ev.target.closest(".chips, .sugg, input, select, .app-menu, .month-pop, .catmenu, .tabbar, .topbar");
+  swipe = ok ? { x: ev.touches[0].clientX, y: ev.touches[0].clientY, t: Date.now() } : null;
+}, { passive: true });
+document.addEventListener("touchend", (ev) => {
+  if (!swipe) return;
+  const dx = ev.changedTouches[0].clientX - swipe.x, dy = ev.changedTouches[0].clientY - swipe.y;
+  const quick = Date.now() - swipe.t < 700;
+  swipe = null;
+  if (quick && Math.abs(dx) > 70 && Math.abs(dx) > 2 * Math.abs(dy)) { hideTip(); stepMonth(dx < 0 ? 1 : -1); }
+}, { passive: true });
+document.addEventListener("touchcancel", () => { swipe = null; }, { passive: true });
+
+// Swipe the add sheet down to cancel it: drag from the top of the sheet (or anywhere while it is scrolled to the top).
+(() => {
+  const dlg = $("#sheet");
+  let drag = null;
+  dlg.addEventListener("touchstart", (ev) => {
+    const t = ev.touches[0];
+    drag = ev.touches.length === 1 && !ev.target.closest("input, textarea, .sugg, a")
+      && (dlg.scrollTop <= 0 || ev.target.closest(".grab"))
+      ? { y: t.clientY, x: t.clientX, dy: 0, on: false, t: Date.now() } : null;
+  }, { passive: true });
+  dlg.addEventListener("touchmove", (ev) => {
+    if (!drag) return;
+    const t = ev.touches[0], dy = t.clientY - drag.y;
+    if (!drag.on) {
+      if (dy < 8 || Math.abs(t.clientX - drag.x) > dy) { if (dy < -8) drag = null; return; }  // upwards or sideways: not a swipe down
+      drag.on = true;
+      dlg.style.transition = "none";
+    }
+    drag.dy = Math.max(0, dy);
+    dlg.style.transform = `translateY(${drag.dy}px)`;
+    ev.preventDefault();   // the sheet follows the finger instead of scrolling
+  }, { passive: false });
+  const end = () => {
+    if (!drag?.on) { drag = null; return; }
+    const fast = drag.dy / (Date.now() - drag.t) > 0.5;
+    const close = drag.dy > 110 || (fast && drag.dy > 40);
+    drag = null;
+    dlg.style.transition = "transform .2s ease-out";
+    dlg.style.transform = close ? "translateY(100%)" : "";
+    setTimeout(() => { dlg.style.transition = ""; if (close) dlg.close(); dlg.style.transform = ""; }, 200);
+  };
+  dlg.addEventListener("touchend", end);
+  dlg.addEventListener("touchcancel", end);
+})();
+
+// Crossing the phone / desktop width, or turning the phone, redraws the charts at the new width.
+PHONE.addEventListener("change", () => { hideTip(); render(); });
+let lastWidth = document.documentElement.clientWidth;
+addEventListener("resize", () => {
+  const w = document.documentElement.clientWidth;
+  if (!PHONE.matches || Math.abs(w - lastWidth) < 24) return;   // a phone's toolbar sliding in changes only the height
+  lastWidth = w;
+  clearTimeout(render.resize);
+  render.resize = setTimeout(render, 150);
+});
+
 $("#add-top").addEventListener("click", () => openSheet());
 
 // ⚙: the settings sheet shared with Portfolio (../../static/settings.js)
@@ -984,8 +1003,7 @@ document.addEventListener("keydown", (ev) => {
   ev.preventDefault();
 });
 
-// Desktop only: no offline app. Remove the worker an older version may have installed.
-navigator.serviceWorker?.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 import("/static/settings.js").then((m) => m.reloadWhenDemoChanges()).catch(() => {});
 loadSettings();
 reload();

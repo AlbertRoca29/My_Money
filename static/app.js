@@ -5,6 +5,32 @@
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const PLOTLY_CONFIG = { displayModeBar: false, responsive: true };
+// Phones (and narrow windows): tabs at the bottom, one card per row, and the pages are asked for with phone=1 so
+// Python stacks side-by-side charts and leaves the heaviest analysis for the computer.
+const PHONE = window.matchMedia("(max-width: 899px)");
+const PHONE_CONFIG = { ...PLOTLY_CONFIG, scrollZoom: false, doubleClick: false, showTips: false };
+
+// The Python figures are drawn for a desktop card. On a phone a finger must never zoom, pan or switch a series
+// off by accident: no drag-to-zoom (a swipe scrolls the page), fixed axes, legend items that ignore taps,
+// smaller labels and fewer date ticks.
+function fitPhone(fig) {
+  const l = fig.layout;
+  l.dragmode = false;
+  l.legend = { ...l.legend, itemclick: false, itemdoubleclick: false, font: { ...(l.legend || {}).font, size: 11 } };
+  const dateAxes = new Set(fig.data.filter((t) => Array.isArray(t.x) && /^\d{4}-\d\d/.test(t.x[0])).map((t) => t.xaxis || "x"));
+  // every axis a trace draws on, including the ones Python never touched (then they are not in the layout yet)
+  const axes = new Set(Object.keys(l).filter((k) => /^[xy]axis\d*$/.test(k)));
+  for (const t of fig.data) {
+    if (["pie", "treemap", "sunburst", "choropleth", "scattergeo"].includes(t.type)) continue;
+    axes.add(`xaxis${(t.xaxis || "x").slice(1)}`); axes.add(`yaxis${(t.yaxis || "y").slice(1)}`);
+  }
+  for (const k of axes) {
+    const ax = l[k] = { ...l[k] };
+    ax.fixedrange = true;
+    ax.tickfont = { ...ax.tickfont, size: 10 };
+    if (k[0] === "x" && dateAxes.has(k.replace("axis", ""))) ax.nticks = 5;
+  }
+}
 // fetch, except that a signed-out (or expired) session goes back to the sign-in page
 async function api(url, options) {
   const r = await fetch(url, options);
@@ -31,14 +57,17 @@ async function load() {
   const { page, params } = route();
   // a tab that is hidden (demo data, Backtest switched off) can still be in the address from before: go to Overview
   if ($(`#tabs a[data-page="${page}"]`)?.hidden) return go("overview", new URLSearchParams());
-  document.querySelectorAll("#tabs a").forEach((a) => a.classList.toggle("active", a.dataset.page === page));
+  document.querySelectorAll("#tabs a, #tabbar a").forEach((a) => a.classList.toggle("active", a.dataset.page === page));
   const tab = $("#tabs a.active"), tabs = $("#tabs");
-  if (tab) tabs.scrollTo({ left: tab.offsetLeft - (tabs.clientWidth - tab.offsetWidth) / 2, behavior: "smooth" });
+  if (tab && !PHONE.matches) tabs.scrollTo({ left: tab.offsetLeft - (tabs.clientWidth - tab.offsetWidth) / 2, behavior: "smooth" });
   const token = ++loadToken;
+  hideChartTip();
   showSkeleton();
   let res, offline = false;
+  const query = new URLSearchParams(params);
+  if (PHONE.matches) query.set("phone", "1");
   try {
-    ({ res, offline } = await fetchPage(`/api/page/${page}?${params}`));
+    ({ res, offline } = await fetchPage(`/api/page/${page}?${query}`));
   } catch (e) {
     res = { error: `Could not reach the server (${e.message}). Is app.py running?` };
   }
@@ -200,6 +229,89 @@ function addChartTools(el) {
   card.appendChild(tools);
 }
 
+// ---------- Chart details: the small dark card a hover (or a tap, on a phone) shows ----------
+// Plotly still works out the text (each figure's hovertemplate, formatted) and draws it in its hover layer;
+// style.css hides that SVG label and the same lines are shown here, with each series' colour. With a mouse the
+// card follows the pointer; after a tap it sits above the finger and scrolls with the page.
+const ptip = $("#ptip");
+let pointer = { x: 0, y: 0, touch: false }, tipChart = null;
+document.addEventListener("pointerdown", (e) => {
+  pointer = { x: e.clientX + scrollX, y: e.clientY + scrollY, touch: e.pointerType !== "mouse" };
+  if (pointer.touch && tipChart && !e.target.closest(".js-plotly-plot")) hideChartTip();   // a tap elsewhere closes it
+}, { capture: true, passive: true });
+document.addEventListener("pointermove", (e) => {
+  if (e.pointerType !== "mouse") return;
+  pointer = { x: e.clientX + scrollX, y: e.clientY + scrollY, touch: false };
+  if (!ptip.hidden) placeChartTip();
+}, { passive: true });
+
+// A Plotly <text> as its lines (multi-line text is split into tspan.line), and the colour of a label or legend symbol
+const textLines = (el) => !el ? [] : [...(el.querySelectorAll("tspan.line").length ? el.querySelectorAll("tspan.line") : [el])]
+  .map((t) => t.textContent.trim()).filter(Boolean);
+function swatch(...els) {   // the first visible fill or stroke among these elements
+  for (const el of els) {
+    if (!el) continue;
+    const s = getComputedStyle(el);
+    const c = [s.fill, s.stroke].find((c) => c && c !== "none" && !/^rgba\(.*,\s*0\)$/.test(c));
+    if (c) return c;
+  }
+  return "";
+}
+// "Cash: €4,231" -> a row with the name on the left and the value on the right
+function tipRow(color, text, extra) {
+  const m = !extra && text.match(/^(.{1,40}?):\s+(.+)$/);
+  const [name, value] = m ? [m[1].trim(), m[2]] : [text, extra];
+  return `<div class="r">${color ? `<i style="--c:${esc(color)}"></i>` : ""}<span>${esc(name)}</span>${value ? `<em>${esc(value)}</em>` : ""}</div>`;
+}
+
+function showChartTip(gd) {
+  const layer = $(".hoverlayer", gd);
+  if (!layer) return;
+  let html = "";
+  const unified = $(".legend", layer);
+  if (unified) {   // hovermode "x unified" / "y unified": a title (the date) and one row per series
+    const title = textLines($(".legendtitletext", unified)).join(" ");
+    const rows = [...unified.querySelectorAll(".traces")].map((t) =>
+      tipRow(swatch(...t.querySelectorAll(".layers path")), textLines($(".legendtext", t)).join(" ")));
+    html = (title ? `<b>${esc(title)}</b>` : "") + rows.join("");
+  } else {         // "closest": one label per point, its first line as the title
+    const labels = [...layer.querySelectorAll(".hovertext")].map((g) => ({
+      color: swatch($("path", g)), lines: textLines($("text.nums", g)), name: textLines($("text.name", g)).join(" ") }));
+    const axis = textLines($(".axistext text", layer)).join(" ");
+    if (labels.length === 1 && !axis) {
+      const [{ color, lines, name }] = labels, [first, ...rest] = lines;
+      html = `<b>${color ? `<i style="--c:${esc(color)}"></i>` : ""}${esc(first || name)}</b>`
+        + rest.map((l) => `<span class="l">${esc(l)}</span>`).join("") + (first && name ? `<span class="l">${esc(name)}</span>` : "");
+    } else {
+      html = (axis ? `<b>${esc(axis)}</b>` : "") + labels.map((x) => tipRow(x.color, x.lines.join(" · "), x.name)).join("");
+    }
+  }
+  if (!html) return hideChartTip();
+  tipChart = gd;
+  if (ptip.hidden || ptip.innerHTML !== html) { ptip.innerHTML = html; ptip.hidden = false; }
+  placeChartTip();
+}
+function placeChartTip() {
+  const w = ptip.offsetWidth, h = ptip.offsetHeight, vw = document.documentElement.clientWidth, edge = 8;
+  const minX = scrollX + edge, maxX = scrollX + vw - w - edge;
+  let x, y;
+  if (pointer.touch) {   // centred above the finger, below it if there is no room on screen above
+    x = pointer.x - w / 2; y = pointer.y - h - 24;
+    if (y < scrollY + edge) y = pointer.y + 30;
+  } else {
+    x = pointer.x + 16; y = pointer.y + 18;
+    if (x > maxX) x = pointer.x - w - 16;
+    if (y + h > scrollY + innerHeight - edge) y = pointer.y - h - 14;
+  }
+  ptip.style.transform = `translate(${Math.round(Math.max(minX, Math.min(maxX, x)))}px, ${Math.round(y)}px)`;
+}
+function hideChartTip(gd) {
+  if (gd && gd !== tipChart) return;   // another chart's unhover
+  ptip.hidden = true;
+  if (tipChart && !gd) try { Plotly.Fx.unhover(tipChart); } catch {}
+  tipChart = null;
+}
+
 // ---------- Blocks (one function per type in web/blocks.py) ----------
 const BLOCKS = {
   kpis(body, b) {
@@ -222,11 +334,16 @@ const BLOCKS = {
     const k = CHART_SCALE[look.chart_size] || 1;
     if (k !== 1 && fig.layout.height) fig.layout.height = Math.round(fig.layout.height * k);
     if (look.motion === false) fig.layout.transition = { duration: 0 };
+    const phone = PHONE.matches;
+    if (phone) fitPhone(fig);
     // wait until the card is in the page so Plotly can measure the width
     requestAnimationFrame(() => {
-      Plotly.newPlot(el, fig.data, fig.layout, PLOTLY_CONFIG).then(() => {
-        addChartTools(el);
+      Plotly.newPlot(el, fig.data, fig.layout, phone ? PHONE_CONFIG : PLOTLY_CONFIG).then(() => {
+        if (!phone) addChartTools(el);
         if (fig.frames) Plotly.addFrames(el, fig.frames);
+        el.on("plotly_hover", () => showChartTip(el));
+        el.on("plotly_unhover", () => hideChartTip(el));
+        if (phone) el.on("plotly_treemapclick", () => false);   // a tap shows the details, it doesn't zoom in
       });
     });
   },
@@ -576,5 +693,6 @@ document.addEventListener("keydown", (e) => {
 // ---------- Start ----------
 api("/api/settings").then((r) => r.json()).then((s) => applyLook(s.values)).catch(() => {});
 window.addEventListener("hashchange", load);
+PHONE.addEventListener("change", load);   // crossing the phone / desktop width: the pages differ, ask again
 window.addEventListener("online", load);
 load();

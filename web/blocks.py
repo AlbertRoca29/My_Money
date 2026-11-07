@@ -209,6 +209,12 @@ def toggle(name, label, value):
     return {"type": "toggle", "name": name, "label": label, "value": bool(value)}
 
 
+def is_phone(params):
+    """True when the page is drawn for a phone (static/app.js adds phone=1 under 900px): stack side-by-side
+    charts, show fewer rows, and leave the heaviest analysis for the computer."""
+    return param(params, "phone", False, bool)
+
+
 def param(params, name, default, cast=str):
     """Read a control's value from the request, falling back to `default`."""
     v = params.get(name)

@@ -10,7 +10,7 @@ from plotly.subplots import make_subplots
 
 import config
 from web import data
-from web.blocks import chart, empty_page, fold, hero, kpi, kpis, notes, param, section
+from web.blocks import chart, empty_page, fold, hero, is_phone, kpi, kpis, notes, param, section
 from web.theme import BASELINE, BLUE, CORAL, GREEN, MUTED, RED, pct, style, tone
 
 TITLE = "Backtest"
@@ -84,7 +84,7 @@ def growth(p):
     fig.update_yaxes(tickprefix="€", row=1, col=1)
     fig.update_yaxes(ticksuffix="%", title_text="drawdown", row=2, col=1)
     fig.update_yaxes(ticksuffix="%", title_text=f"vs {name}", row=3, col=1)
-    return chart(style(fig, height=680))
+    return chart(style(fig, height=560 if is_phone(p) else 680))
 
 
 @section("Where the performance came from")

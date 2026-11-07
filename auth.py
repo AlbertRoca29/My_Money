@@ -34,7 +34,7 @@ GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
 
 # Anyone may fetch these: they hold no data, and browsers ask for some of them without the cookie
-PUBLIC = {"/login", "/auth/callback", "/logout", "/icon.svg", "/sw.js", "/healthz"}
+PUBLIC = {"/login", "/auth/callback", "/logout", "/manifest.webmanifest", "/icon.svg", "/sw.js", "/healthz"}
 
 bp = Blueprint("auth", __name__)
 
@@ -103,7 +103,7 @@ def callback():
 def logout():
     session.clear()
     resp = redirect(url_for("auth.login"))
-    resp.headers["Clear-Site-Data"] = '"cache", "storage"'  # the browser forgets its copies of your data
+    resp.headers["Clear-Site-Data"] = '"cache", "storage"'  # the phone forgets its offline copies of your data
     return resp
 
 

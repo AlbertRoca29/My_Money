@@ -1,4 +1,4 @@
-"""Gastos — expenses and income, as a desktop web app (replaces logging them straight into the Google Sheet).
+"""Gastos — expenses and income, as a web app for the phone and the computer (replaces logging them straight into the Google Sheet).
 
 It is the default half of My Money: ../app.py registers this blueprint, so Gastos lives at "/" and the
 portfolio tracker at "/portfolio", on the same server.

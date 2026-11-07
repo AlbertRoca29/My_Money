@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 
 import config
 from web import data
-from web.blocks import chart, empty_page, hero, item, items, kpi, kpis, param, section, select
+from web.blocks import chart, empty_page, hero, is_phone, item, items, kpi, kpis, param, section, select
 from web.theme import BLUE, GREEN, MUTED, RED, eur, pct, shades, style, tone
 
 TITLE = "Overview"
@@ -36,10 +36,11 @@ def _center_label(day, total):
 
 
 def _timed(fig, p):
-    """Settings > Look: 1Y / 3Y / All buttons above a time chart, and smooth (curved) lines."""
+    """Settings > Look: 1Y / 3Y / All buttons above a time chart (not on a phone: too small for a finger and they
+    collide with the legend), and smooth (curved) lines."""
     if param(p, "smooth", True, bool):
         fig.update_traces(line_shape="spline", selector=dict(type="scatter", mode="lines"))
-    if param(p, "range_buttons", True, bool):
+    if param(p, "range_buttons", True, bool) and not is_phone(p):
         fig.update_xaxes(rangeselector=dict(
             buttons=[dict(count=6, label="6M", step="month", stepmode="backward"),
                      dict(count=1, label="1Y", step="year", stepmode="backward"),
@@ -78,14 +79,18 @@ def build(p):
         chips.append((f"Last 12 months: {eur(latest - year_ago, sign=True)}", tone(latest - year_ago)))
 
     snapshot_options = [(d.strftime(config.DATE_FORMAT), d.strftime("%d %b %Y")) for d in reversed(dates)]
+    # on a phone: no smoothed copy of the allocation chart and no play-button animation (computer only)
+    shown = (snapshot_donut, snapshot_list, value_over_time, growth, allocation_over_time, smoothed_allocation,
+             snapshot_changes, drawdown, top_positions, animation)
+    if is_phone(p):
+        shown = tuple(s for s in shown if s not in (smoothed_allocation, animation))
     return {
         "hero": hero("Total wealth", eur(latest), chips,
                      caption=f"Snapshot of {dates[-1]:%d %B %Y} · {len(dates)} snapshots"),
         "controls": [
             select("snapshot", "Snapshot", snapshot_options, param(p, "snapshot", snapshot_options[0][0])),
         ],
-        "sections": [s(p) for s in (snapshot_donut, snapshot_list, value_over_time, growth,
-                                     allocation_over_time, smoothed_allocation, snapshot_changes, drawdown, top_positions, animation)],
+        "sections": [s(p) for s in shown],
     }
 
 

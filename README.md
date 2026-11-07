@@ -4,11 +4,13 @@ A personal-finance side project, still a work in progress. One website with two 
 to go from one to the other:
 
 - **[Gastos](gastos/)** at `/` (the default, orange): an app to log expenses and income.
-
-**Desktop only:** phones and tablets (and windows narrower than 900px) get a "Desktop only" notice instead of the app, before the sign-in page; nothing installs as a phone app, and the local server only listens on this computer (`127.0.0.1`).
 - **Portfolio tracker** at `/portfolio` (blue): net worth from periodic snapshots, money-weighted returns
   (your savings come straight from Gastos), look-through exposure vs a benchmark ETF, and a backtest of
   today's fund mix.
+
+Both work on a phone and on a computer. Narrower than 900px the tabs move to a bar at the bottom and every
+card takes the full width; Portfolio pages are then built with `phone=1`, which stacks side-by-side charts and
+keeps the heaviest analysis ("More details", the animation) for the computer.
 
 Your data lives in **your own Google Sheet** (a Movements tab and a Snapshots tab) plus a private bucket for
 receipts, and the app runs on **Google Cloud Run** behind Sign in with Google: see **[DEPLOY.md](DEPLOY.md)**.

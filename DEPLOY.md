@@ -1,10 +1,10 @@
 # Put My Money online (Google Cloud)
 
-What you end up with: one private link (Gastos first, Portfolio behind the switch) for your computer's browser
-(desktop only: phones and tablets get a notice page, before the sign-in). Only the Google accounts you list can sign in.
+What you end up with: one private link (Gastos first, Portfolio behind the switch) for your phone and computer
+(save it to your phone's home screen to open Gastos like an app). Only the Google accounts you list can sign in.
 
 ```
-    computer    ──(Sign in with Google)──► Cloud Run: app.py ──► Google Sheet  "Movements" + "Snapshots" tabs
+ phone / laptop ──(Sign in with Google)──► Cloud Run: app.py ──► Google Sheet  "Movements" + "Snapshots" tabs
                                                  ▲              └► bucket        receipts, downloads
                          every night, 05:00 ─────┘ Cloud Scheduler (pre-downloads ETF data so pages open fast)
 ```

@@ -16,7 +16,8 @@ import config
 import lookthrough
 import settings
 from web import data
-from web.blocks import chart, empty_page, fold, hero, item, items, kpi, kpis, notes, param, section, table, tabs, text
+from web.blocks import (chart, empty_page, fold, hero, is_phone, item, items, kpi, kpis, notes, param, section, table,
+                         tabs, text)
 from web.theme import (BASELINE, BLUE, BUCKET_COLORS, CORAL, GREEN, INK, MUTED, RED, REGION_COLORS, REST_COLOR,
                        SEQUENTIAL, eur, pct, shades, style, tone)
 
@@ -25,8 +26,9 @@ CATCH_ALL = lookthrough.CATCH_ALL
 
 
 def _n(p, name):
-    """How many countries / companies to show (Settings > Exposure)."""
-    return param(p, name, 20, int)
+    """How many countries / companies to show (Settings > Exposure); at most 12 on a phone."""
+    n = param(p, name, 20, int)
+    return min(n, 12) if is_phone(p) else n
 
 
 def _bt():
@@ -92,7 +94,10 @@ def build(p):
 
 @section("More details", width="full")
 def more(p):
-    """Everything that is nice to have but not needed at a glance, in one tabbed panel (desktop only)."""
+    """Everything that is nice to have but not needed at a glance, in one tabbed panel (computer only)."""
+    if is_phone(p):
+        return {"blocks": [text("Where each exposure comes from, every fund's mix, costs, valuation and overlap: "
+                                "open this page on a computer.")]}
     def cards(*fns):
         return [f(p) for f in fns]
     panel = tabs("More details", [
@@ -252,7 +257,7 @@ def currencies(p):
     return chart(_grouped_bars(cur))
 
 
-def _world_map(df):
+def _world_map(df, height=460):
     """Choropleth of the portfolio's country weights. The colour is the weight to the power 0.4 so the
     US (~60%) doesn't wash out everyone else; hovering shows the real weights next to the benchmark's."""
     bt = _bt()
@@ -266,7 +271,7 @@ def _world_map(df):
         hovertemplate="<b>%{location}</b><br>You %{customdata[0]:.1f}% · " + _name() + " %{customdata[1]:.1f}%<extra></extra>"))
     fig.update_geos(projection_type="natural earth", showframe=False, showcoastlines=False, showcountries=False,
                     showland=True, landcolor="#EEF0F3", bgcolor="rgba(0,0,0,0)", lataxis_range=[-58, 84])
-    return style(fig, height=460, legend=False, hover="closest", margin=dict(l=0, r=0, t=0, b=0))
+    return style(fig, height=height, legend=False, hover="closest", margin=dict(l=0, r=0, t=0, b=0))
 
 
 @section("Countries")
@@ -276,7 +281,7 @@ def countries(p):
     us = full.loc["United States"] if "United States" in full.index else None
     mid = [text(f"**United States:** {us['Portfolio %']:.1f}% of your equity vs {us[_bt() + ' %']:.1f}% in "
                 f"{_name()}")] if us is not None else []
-    return [chart(_world_map(full)), *mid, chart(_grouped_bars(full.drop("United States", errors="ignore").head(n)))]
+    return [chart(_world_map(full, 220 if is_phone(p) else 460)), *mid, chart(_grouped_bars(full.drop("United States", errors="ignore").head(n)))]
 
 
 @section("Active weights", "Percentage points over (blue) or under (red) the benchmark")
@@ -285,6 +290,9 @@ def active(p):
     s = t["sectors"]["Active (pp)"].sort_values(ascending=False)
     c = t["countries"]["Active (pp)"].drop(CATCH_ALL, errors="ignore")
     c = c.reindex(c.abs().sort_values(ascending=False).index[:n]).sort_values(ascending=False)
+    if is_phone(p):  # one chart under the other
+        return [chart(_diverging(ser).update_layout(title=dict(text=title, x=0, font=dict(size=13)), margin=dict(t=36)))
+                for title, ser in (("Sectors", s), (f"Countries (largest {n} gaps)", c))]
     fig = make_subplots(rows=1, cols=2, subplot_titles=("Sectors", f"Countries (largest {n} gaps)"),
                         horizontal_spacing=0.18)
     for col, ser in ((1, s), (2, c)):
@@ -305,6 +313,11 @@ def active_companies(p):
     a = sorted(data.lookthrough_result().get("active_holdings", []), key=lambda x: x["active"])
     rows = list(reversed(a[-n:])) + [x for x in reversed(a[:n]) if x not in a[-n:]]
     ser = pd.Series([x["active"] for x in rows], index=[x["name"] for x in rows])
+    if is_phone(p):  # no room for the labels: a tap on a bar shows them
+        fig = _diverging(ser).update_traces(customdata=[[x["weight"], x["benchmark_weight"]] for x in rows],
+                                            hovertemplate="<b>%{y}</b><br>%{x:+.2f} pp<br>You %{customdata[0]:.2f}% · "
+                                                          + bt + " %{customdata[1]:.2f}%<extra></extra>")
+        return {"blocks": [chart(fig)], "subtitle": f"Percentage points vs {bt}. Tap a bar for both weights"}
     labels = [f"{x['weight']:.2f}% vs {x['benchmark_weight']:.2f}%" for x in rows]
     return {"blocks": [chart(_diverging(ser, labels=labels))],
             "subtitle": f"Labels: your weight vs {bt}"}

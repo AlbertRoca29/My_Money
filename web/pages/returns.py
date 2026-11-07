@@ -13,7 +13,7 @@ from plotly.subplots import make_subplots
 import config
 import mwr
 from web import data
-from web.blocks import chart, chips, duel, empty_page, hero, kpi, kpis, param, section, side, table
+from web.blocks import chart, chips, duel, empty_page, hero, is_phone, kpi, kpis, param, section, side, table
 from web.theme import BASELINE, BLUE, CORAL, GREEN, INK, MUTED, RED, eur, frac, style, tone
 
 TITLE = "Returns"
@@ -100,6 +100,8 @@ def periods(p):
     df = mwr.summary(snaps, flows)
     cards = kpis(*[kpi(name, f"{r['annual']:.1%}/yr", f"{eur(r['gain'], sign=True)} · {r['period']:.1%} over period",
                        tone(r["annual"])) for name, r in df.iterrows()])
+    if is_phone(p):  # the cards already hold each period's numbers; the full table is too wide for a phone
+        return cards
     df = df.rename(columns={"annual": "MWR / yr", "period": "MWR over period"})
     fmt = {"start": eur, "saved": eur, "end": eur, "gain": lambda x: eur(x, sign=True),
            "MWR / yr": frac, "MWR over period": frac, "from": str, "to": str}
@@ -137,7 +139,7 @@ def money_in(p):
                              hovertemplate="%{y:+,.0f} €<extra>gain</extra>"), 2, 1)
     fig.add_hline(y=0, line=dict(color=BASELINE, width=1), row=2, col=1)
     fig.update_yaxes(tickprefix="€")
-    return chart(style(fig, height=540))
+    return chart(style(fig, height=460 if is_phone(p) else 540))
 
 
 def _short(v):
