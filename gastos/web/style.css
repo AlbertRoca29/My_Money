@@ -84,6 +84,7 @@ svg:has(> use) { width: 22px; height: 22px; fill: none; stroke: currentColor; st
 .app-menu small { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
 .month { position: relative; margin-left: auto; font-weight: 600; font-size: 14px; }
 .month[hidden] { display: none; }
+.month[hidden] ~ .gear { margin-left: auto; }   /* month picker hidden (Stats): keep Settings + Add pinned to the right */
 .month-btn {
   display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 8px 0 16px; border: 0; border-radius: 999px;
   background: var(--panel); font-weight: 600;
@@ -392,3 +393,9 @@ main { max-width: 640px; margin: 0 auto; padding: 4px 16px; }
   #view[data-view=list] .filter-row { flex-wrap: wrap; }
   #view[data-view=list] .catpick { flex-basis: 100%; }   /* just under the 68px top bar */
 }
+/* Category stickers (stickers.js): the drawing replaces the tinted circle */
+.stk { display: block; width: 100%; height: 100%; overflow: visible; }
+.avatar:has(.stk) { background: none; }
+.avatar .stk { width: 135%; height: 135%; }
+.cat .stk { width: 115%; height: 115%; }
+.bar-label .stk, .places .stk { display: inline-block; width: 22px; height: 22px; vertical-align: -6px; margin-right: 2px; }

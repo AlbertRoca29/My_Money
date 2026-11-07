@@ -1,5 +1,6 @@
 // Gastos — the screens. Data comes from store.js; this file only filters, sums and draws.
 import * as store from "./store.js";
+import { sticker } from "./stickers.js";
 
 const EXPENSE_CATS = ["🛒 Groceries", "🍽️ Restaurants & Cafés", "🚌 Transportation", "🩺 Health & Personal Care",
   "🎨 Arts & Culture", "👕 Clothing", "🎉 Parties & Nightlife", "🏡 Housing", "🤷 Miscellaneous"];
@@ -47,6 +48,8 @@ const todayIso = () => dayIso(0);
 
 const emoji = (cat) => [...(cat || "")][0] || "•";
 const label = (cat) => (cat || "").replace(/^\S+\s/, "");
+// The drawing for a category (its sticker), or its emoji when it has none.
+const glyph = (cat) => sticker(label(cat)) || esc(emoji(cat));
 // Entries paid by someone else stay visible but never count towards a total.
 const counts = (e) => !e.paid_by_other;
 // Settings can hide them altogether (Movements and Home).
@@ -102,7 +105,7 @@ function row(e, withDate = false) {
   const sign = e.kind === "income" ? (loss ? "−" : "+") : "−";
   const cls = loss ? "neg" : e.kind === "income" ? "pos" : counts(e) ? "" : "other";
   return `<button class="row" data-id="${esc(e.id)}">
-    <span class="avatar" style="--c:${colorOf(e.category)}">${esc(emoji(e.category))}</span>
+    <span class="avatar" style="--c:${colorOf(e.category)}">${glyph(e.category)}</span>
     <span class="row-main">
       <span class="row-name">${esc(e.name)}${e.receipt ? ' <span class="clip" title="Has receipt">📎</span>' : ""}</span>
       <span class="row-sub">${esc(label(e.category))}${withDate ? ` · ${esc(dayName(e.date))}` : ""}</span>
@@ -116,7 +119,7 @@ function catBars(pairs, total) {
   const max = pairs[0][1];
   return `<div class="bars">${pairs.map(([cat, v]) => `
     <div class="bar-row">
-      <span class="bar-label">${esc(emoji(cat))} ${esc(label(cat))}</span>
+      <span class="bar-label">${glyph(cat)} ${esc(label(cat))}</span>
       <span class="bar-val">${eur0(v)} <span class="muted">${pct(v / total)}</span></span>
       <span class="bar-track"><span class="bar-fill" style="width:${(v / max) * 100}%;background:${colorOf(cat)}"></span></span>
     </div>`).join("")}</div>`;
@@ -186,14 +189,14 @@ function nameList(kind) {
 // Movements' category filter: a button that opens a menu (a native <select> looks different on every phone).
 function catPicker(kind, cat) {
   const item = (value, c, text) => `<button type="button" class="catopt ${value === cat ? "on" : ""}" data-cat="${esc(value)}">
-    <span class="avatar sm" style="--c:${c ? colorOf(c) : "var(--ink-2)"}">${c ? esc(emoji(c)) : "✦"}</span><span>${esc(text)}</span>
+    <span class="avatar sm" style="--c:${c ? colorOf(c) : "var(--ink-2)"}">${c ? glyph(c) : "✦"}</span><span>${esc(text)}</span>
     ${value === cat ? '<svg class="tick"><use href="#i-check"/></svg>' : ""}</button>`;
   const group = (k, title) => `${title ? `<div class="cathead">${title}</div>` : ""}${categories(k).map((c) => item(c, c, label(c))).join("")}`;
   const all = kind === "income" ? "All income" : kind === "expense" ? "All expenses" : "All categories";
   const menu = kind === "all" ? group("expense", "Expenses") + group("income", "Income") : group(kind);
   return `<div class="catpick">
     <button type="button" class="catbtn ${cat ? "set" : ""}" id="cat-btn" aria-haspopup="listbox" aria-expanded="${state.list.catOpen}">
-      ${cat ? `<span class="avatar sm" style="--c:${colorOf(cat)}">${esc(emoji(cat))}</span><span>${esc(label(cat))}</span>` : `<span>${all}</span>`}
+      ${cat ? `<span class="avatar sm" style="--c:${colorOf(cat)}">${glyph(cat)}</span><span>${esc(label(cat))}</span>` : `<span>${all}</span>`}
       <svg class="chev"><use href="#i-chevron"/></svg>
     </button>
     ${state.list.catOpen ? `<div class="catmenu" role="listbox">${item("", null, all)}${menu}</div>` : ""}
@@ -314,7 +317,7 @@ const views = {
       <section class="card wide"><h2>Income vs spent</h2>${monthChart(months)}</section>
       <section class="card"><h2>Average per month by category</h2>${catBars(byCat, byCat.reduce((a, [, v]) => a + v, 0))}</section>
       <section class="card"><h2>Where the money goes</h2>
-        ${places.length ? `<ol class="places">${places.map((p) => `<li><span>${esc(emoji(p.cat))} ${esc(p.name)} <span class="muted">×${p.n}</span></span><b>${eur0(p.total)}</b></li>`).join("")}</ol>` : `<p class="empty">Nothing yet.</p>`}
+        ${places.length ? `<ol class="places">${places.map((p) => `<li><span>${glyph(p.cat)} ${esc(p.name)} <span class="muted">×${p.n}</span></span><b>${eur0(p.total)}</b></li>`).join("")}</ol>` : `<p class="empty">Nothing yet.</p>`}
       </section>
       <section class="card"><h2>Income sources</h2>${catBars(income, incomeTotal)}</section>`;
   },
@@ -381,7 +384,7 @@ function openSheet(entry = null) {
       <input name="name" placeholder="${kind === "income" ? "From…" : "Where / what…"}" value="${esc(e.name)}"
         autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done" required>
       <div class="sugg">${suggestions(e.name)}</div>
-      <div class="cats">${categories(kind).map((c) => `<button type="button" class="cat ${c === category ? "on" : ""}" data-cat="${esc(c)}" title="${esc(label(c))}" aria-label="${esc(label(c))}" style="--c:${colorOf(c)}">${esc(emoji(c))}</button>`).join("")}</div>
+      <div class="cats">${categories(kind).map((c) => `<button type="button" class="cat ${c === category ? "on" : ""}" data-cat="${esc(c)}" title="${esc(label(c))}" aria-label="${esc(label(c))}" style="--c:${colorOf(c)}">${glyph(c)}</button>`).join("")}</div>
       <div class="cat-name"></div>
       <div class="dates">
         <button type="button" data-day="0" class="${e.date === dayIso(0) ? "on" : ""}">Today</button>
@@ -575,6 +578,8 @@ function render() {
 }
 
 async function reload() {
+  const early = store.cachedEntries();   // draw the last list at once; the server may still be waking up
+  if (early && !state.entries?.length) { state.entries = early; render(); }
   try {
     const { entries, offline } = await store.listEntries();
     state.entries = entries;
