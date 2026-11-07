@@ -11,20 +11,20 @@ INK_2 = "#505A63"      # secondary text
 MUTED = "#8B959E"      # axis labels, captions
 GRID = "#EEF0F3"       # gridlines
 BASELINE = "#D5DAE0"   # zero lines
-BLUE = "#0666EB"       # you / portfolio
-CORAL = "#FF6B4A"      # benchmark
-GREEN = "#00B67A"      # gains, direct stocks
-RED = "#E5484D"        # losses, underweights
-VIOLET = "#8E5CF7"
-SEQUENTIAL = ["#EAF2FE", "#C4DAFC", "#8DB8F8", "#4F8FF2", "#0666EB", "#0450B8", "#023A87"]
+BLUE = "#4B80DF"       # you / portfolio (calm, not saturated: the charts should not shout)
+CORAL = "#D9826A"      # benchmark
+GREEN = "#2FA383"      # gains, direct stocks
+RED = "#D9686C"        # losses, underweights
+VIOLET = "#7A6AD0"
+SEQUENTIAL = ["#EEF3FC", "#D3E0F6", "#AFC6EE", "#86A8E4", "#5F88D6", "#456CB8", "#33538F"]
 
-BUCKET_COLORS = {"Core index": BLUE, "US": "#3F5FA8", "Europe": "#5FA8D3", "Japan & Pacific": "#D64545",
-                 "Emerging markets": "#00A2C7", "Small-cap": "#B79CFA", "Small-cap value": VIOLET,
-                 "Value": "#F2B705", "Momentum": "#F0509A", "Quality": "#0F9B8E", "Minimum volatility": "#8AA1B1",
-                 "Multi-factor": "#C2700B", "Dividend": "#E0B000", "ESG": "#6AA84F", "Sector & theme": "#A64D79",
+BUCKET_COLORS = {"Core index": BLUE, "US": "#3F5E9E", "Europe": "#7FAFD6", "Japan & Pacific": "#C9787A",
+                 "Emerging markets": "#4FA9B8", "Small-cap": "#B3A6E6", "Small-cap value": VIOLET,
+                 "Value": "#D1A93C", "Momentum": "#C2639A", "Quality": "#3E9483", "Minimum volatility": "#9AAAB8",
+                 "Multi-factor": "#C98A4E", "Dividend": "#D6B65C", "ESG": "#7EA868", "Sector & theme": "#9C6A8A",
                  "Real estate": "#8D6E63", "Bonds": "#5C6F80", "Money market": "#A9B4C2",
                  "Gold & commodities": "#C9A227", "Direct stocks": GREEN}  # same names as etfs.BUCKETS
-REGION_COLORS = {"Americas": BLUE, "Europe": GREEN, "Middle East & Africa": CORAL,
+REGION_COLORS = {"Americas": BLUE, "Europe": GREEN, "Middle East & Africa": "#D1A93C",
                  "Asia-Pacific": VIOLET, "Unclassified": MUTED}
 REST_COLOR = "#E3E7EC"
 
@@ -77,6 +77,15 @@ def shades(base, n, spread=0.55):
     return [hex_color([v + (1 - v) * spread * i / (n - 1) for v in rgb]) for i in range(n)]
 
 
+def ink_on(color):
+    """White or dark text, whichever reads better on a fill of this colour."""
+    h = hex_color(color).lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    lin = lambda c: c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    lum = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+    return "#FFFFFF" if lum < 0.3 else INK
+
+
 # ---------------------------------------------------------------------------
 # Plotly template
 # ---------------------------------------------------------------------------
@@ -86,7 +95,7 @@ _axis = dict(showline=False, zeroline=False, ticks="", tickfont=dict(color=MUTED
 pio.templates["my_money"] = go.layout.Template(layout=dict(
     font=dict(family=FONT, color=INK, size=12),
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-    colorway=[BLUE, CORAL, GREEN, VIOLET, "#F2B705", "#00A2C7", "#F0509A", MUTED],
+    colorway=[BLUE, CORAL, GREEN, VIOLET, "#D1A93C", "#4FA9B8", "#C2639A", MUTED],
     xaxis=dict(**_axis, showgrid=False),
     yaxis=dict(**_axis, showgrid=True, gridcolor=GRID, gridwidth=1),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,

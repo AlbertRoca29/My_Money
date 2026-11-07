@@ -55,7 +55,8 @@ def init(app):
 
 def _require_sign_in():
     path = request.path
-    if path in PUBLIC or path.startswith("/tasks/") or session.get("email") in ALLOWED:
+    # /api/wallet/notify checks its own token (gastos/wallet.py): it comes from the phone app, not a browser
+    if path in PUBLIC or path.startswith("/tasks/") or path == "/api/wallet/notify" or session.get("email") in ALLOWED:
         return None
     if path.startswith(("/api/", "/receipts/")):
         return jsonify({"error": "Signed out"}), 401

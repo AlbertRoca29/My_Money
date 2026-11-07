@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 13+ themed icons: the same two circles in one colour, the overlap cut out -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="512" android:viewportHeight="512">
+    <group android:pivotX="256" android:pivotY="256" android:scaleX="0.66" android:scaleY="0.66">
+        <path android:fillColor="#000000" android:fillType="evenOdd"
+            android:pathData="M68,256a124,124 0 1,0 248,0a124,124 0 1,0 -248,0z M196,256a124,124 0 1,0 248,0a124,124 0 1,0 -248,0z"/>
+    </group>
+</vector>

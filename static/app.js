@@ -78,10 +78,15 @@ async function load() {
 
 // Every page that loads is kept in the browser; with no connection the last copy is shown instead.
 const PAGE_CACHE = "portfolio-pages";
+const MEMORY = new Map();   // url -> {at, res}: switching back to a page seen a moment ago needs no request
+const MEMORY_MS = 30000;    // same as the server's sheet cache
 async function fetchPage(url) {
+  const seen = MEMORY.get(url);
+  if (seen && Date.now() - seen.at < MEMORY_MS) return { res: seen.res, offline: false };
   try {
     const r = await api(url);
     const res = await r.json();
+    if (r.ok) MEMORY.set(url, { at: Date.now(), res });
     if (r.ok && window.caches) caches.open(PAGE_CACHE).then((c) => c.put(url, new Response(JSON.stringify(res)))).catch(() => {});
     return { res, offline: false };
   } catch (e) {
@@ -131,7 +136,8 @@ function renderHero(h) {
     <div class="label">${esc(h.label)}</div>
     <div class="value">${esc(h.value)}${h.unit ? `<small>${esc(h.unit)}</small>` : ""}</div>
     ${h.caption ? `<div class="caption">${esc(h.caption)}</div>` : ""}
-    <div class="chips">${h.chips.map((c) => `<span class="chip ${c.tone || ""}">${esc(c.text)}</span>`).join("")}</div>`;
+    ${h.stats?.length ? `<div class="hstats">${h.stats.map((x) => `<div class="hstat ${x.tone || ""}"><span>${esc(x.label)}</span><b>${esc(x.value)}</b></div>`).join("")}</div>` : ""}
+    ${h.chips.length ? `<div class="chips">${h.chips.map((c) => `<span class="chip ${c.tone || ""}">${esc(c.text)}</span>`).join("")}</div>` : ""}`;
 }
 
 function renderControls(page, params, controls) {
@@ -149,9 +155,17 @@ function renderControls(page, params, controls) {
         p.set(c.name, b.dataset.v);
         go(page, p);
       });
-      box.appendChild(row);
+      if (c.fold) {   // hidden behind one pill ("Compare with · All-World"); opening it shows the row
+        const fold = document.createElement("details");
+        fold.className = "choice-fold";
+        const current = c.options.find((o) => o.value === c.value)?.label || c.value;
+        fold.innerHTML = `<summary><span>${esc(c.fold)}</span><b>${esc(current)}</b><svg class="chev"><use href="#i-chevron"/></svg></summary>`;
+        fold.appendChild(row);
+        box.appendChild(fold);
+      } else box.appendChild(row);
       continue;
     }
+    if (c.type === "select") { box.appendChild(picker(page, params, c)); continue; }
     const label = document.createElement("label");
     label.className = c.type === "toggle" ? "field switch" : "field";
     let input;
@@ -181,6 +195,39 @@ function renderControls(page, params, controls) {
     if (c.type === "toggle") label.appendChild(document.createElement("i"));
     box.appendChild(label);
   }
+}
+
+// A select control: a pill with the chosen option that opens a list (the browser's own picker looks dated),
+// with ‹ › on each side to step through the options when c.arrows (newest first: ‹ goes back in time).
+function picker(page, params, c) {
+  const wrap = document.createElement("div");
+  wrap.className = "picker";
+  const i = c.options.findIndex((o) => o.value === c.value), cur = c.options[i] || c.options[0];
+  const set = (v) => { const p = new URLSearchParams(params); p.set(c.name, v); go(page, p); };
+  let lastGroup = null;
+  const list = c.options.map((o) => {
+    const head = o.group != null && o.group !== lastGroup ? `<div class="pick-group">${esc(lastGroup = o.group)}</div>` : "";
+    return `${head}<button type="button" role="option" data-v="${esc(o.value)}" class="${o.value === cur.value ? "on" : ""}" aria-selected="${o.value === cur.value}">${esc(o.label)}</button>`;
+  }).join("");
+  wrap.innerHTML = `${c.arrows ? `<button type="button" class="pick-step" data-step="1" aria-label="Older" ${i >= c.options.length - 1 ? "disabled" : ""}><svg><use href="#i-chevron"/></svg></button>` : ""}
+    <button type="button" class="pick-btn" aria-haspopup="listbox" aria-expanded="false"><span>${esc(c.label)}</span><b>${esc(cur.label)}</b><svg class="chev"><use href="#i-chevron"/></svg></button>
+    ${c.arrows ? `<button type="button" class="pick-step" data-step="-1" aria-label="Newer" ${i <= 0 ? "disabled" : ""}><svg><use href="#i-chevron"/></svg></button>` : ""}
+    <div class="pick-menu" role="listbox" hidden>${list}</div>`;
+  const btn = $(".pick-btn", wrap), menu = $(".pick-menu", wrap);
+  const open = (on) => {
+    menu.hidden = !on; btn.setAttribute("aria-expanded", on);
+    const sel = on && $("button.on", menu);   // scroll only the list (scrollIntoView could shift the page sideways)
+    if (sel) menu.scrollTop = sel.offsetTop - (menu.clientHeight - sel.offsetHeight) / 2;
+  };
+  btn.addEventListener("click", (e) => { e.stopPropagation(); open(menu.hidden); });
+  menu.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { open(false); set(b.dataset.v); } });
+  wrap.querySelectorAll(".pick-step").forEach((b) => b.addEventListener("click", () => {
+    const o = c.options[i + Number(b.dataset.step)];
+    if (o) set(o.value);
+  }));
+  document.addEventListener("click", (e) => { if (!wrap.contains(e.target)) open(false); });
+  wrap.addEventListener("keydown", (e) => { if (e.key === "Escape") open(false); });
+  return wrap;
 }
 
 function renderSection(s) {
@@ -312,6 +359,36 @@ function hideChartTip(gd) {
   tipChart = null;
 }
 
+// Squarified treemap: values (biggest first) -> rectangles filling x, y, w, h, each as close to a square as it can be
+function squarify(values, x, y, w, h) {
+  const total = values.reduce((s, v) => s + v, 0), out = [];
+  if (!total || w <= 0 || h <= 0) return values.map(() => ({ x, y, w: 0, h: 0 }));
+  const areas = values.map((v) => (v / total) * w * h);
+  const worst = (row, side) => {
+    const s = row.reduce((a, b) => a + b, 0);
+    return Math.max((side * side * Math.max(...row)) / (s * s), (s * s) / (side * side * Math.min(...row)));
+  };
+  let i = 0;
+  while (i < areas.length) {
+    const side = Math.min(w, h);
+    let row = [areas[i]], j = i + 1;
+    while (j < areas.length && worst([...row, areas[j]], side) <= worst(row, side)) row.push(areas[j++]);
+    const sum = row.reduce((a, b) => a + b, 0);
+    const last = j >= areas.length;   // the last row takes the rest exactly (no rounding gap at the edge)
+    if (w >= h) {
+      const cw = last ? w : sum / h; let cy = y;
+      for (const a of row) { const ch = (a / sum) * h; out.push({ x, y: cy, w: cw, h: ch }); cy += ch; }
+      x += cw; w -= cw;
+    } else {
+      const ch = last ? h : sum / w; let cx = x;
+      for (const a of row) { const cw = (a / sum) * w; out.push({ x: cx, y, w: cw, h: ch }); cx += cw; }
+      y += ch; h -= ch;
+    }
+    i = j;
+  }
+  return out;
+}
+
 // ---------- Blocks (one function per type in web/blocks.py) ----------
 const BLOCKS = {
   kpis(body, b) {
@@ -362,12 +439,103 @@ const BLOCKS = {
     const el = document.createElement("div");
     el.className = "items";
     el.innerHTML = b.rows.map((r) => `
-      <div class="item">
+      <div class="item ${r.detail ? "go" : ""}" ${r.detail ? `role="button" tabindex="0" data-detail="${esc(r.detail)}"` : ""}>
         <div class="dot" style="background:${esc(r.color || "#8B959E")}">${esc((r.title || "?").trim()[0].toUpperCase())}</div>
         <div class="main"><div class="title">${esc(r.title)}</div>${r.subtitle ? `<div class="subtitle">${esc(r.subtitle)}</div>` : ""}</div>
         <div class="right"><div class="value">${esc(r.value)}</div>${r.sub_value ? `<div class="sub-value ${r.tone || ""}">${esc(r.sub_value)}</div>` : ""}</div>
+        ${r.detail ? `<svg class="go-chev"><use href="#i-chevron"/></svg>` : ""}
       </div>`).join("");
+    const pick = (e) => { const row = e.target.closest("[data-detail]"); if (row) openDetail(row.dataset.detail); };
+    el.addEventListener("click", pick);
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(e); } });
     body.appendChild(el);
+  },
+
+  shares(body, b) {
+    // parts of a whole: one bar split by share, then one row per part (or a small bar per row, stack=false)
+    const el = document.createElement("div");
+    el.className = `shares ${b.stack ? "" : "rows-only"}`;
+    const max = Math.max(...b.rows.map((r) => r.pct), 1);
+    el.innerHTML = (b.stack ? `<div class="sh-bar">${b.rows.map((r) => `<i style="flex:${r.pct};background:${esc(r.color)}" title="${esc(r.name)} · ${esc(r.value)}"></i>`).join("")}</div>` : "")
+      + `<div class="sh-list">${b.rows.map((r) => `<div class="sh-row"><i style="background:${esc(r.color)}"></i><span>${esc(r.name)}</span>
+          ${r.value ? `<b>${esc(r.value)}</b>` : "<b></b>"}${b.stack ? `<em>${r.pct.toFixed(r.pct < 10 ? 1 : 0)}%</em>` : ""}
+          ${b.stack ? "" : `<span class="sh-track"><span style="width:${(r.pct / max) * 100}%;background:${esc(r.color)}"></span></span>`}</div>`).join("")}</div>`;
+    body.appendChild(el);
+  },
+
+  mosaic(body, b) {
+    // a treemap of rounded tiles: groups laid out first, then the tiles inside each one (web/blocks.py > mosaic).
+    // A group too thin for its tiles is drawn as one tile instead (hover lists what is in it).
+    const el = document.createElement("div");
+    el.className = "mosaic";
+    const money = (v) => `€${Math.round(v).toLocaleString("en")}`;
+    const tiles = b.groups.flatMap((g, gi) => g.tiles.map((t) => ({ ...t, group: g.name, gi })));
+    const groups = b.groups.map((g, gi) => {
+      const value = g.tiles.reduce((s, t) => s + t.value, 0);
+      return { ...g.tiles[0], name: g.name, value, pct: g.tiles.reduce((s, t) => s + t.pct, 0),
+        sub: `${g.tiles.length} positions`, detail: null, gi, members: g.tiles, total: money(value) };
+    });
+    const html = (t, attrs) => `
+      <div class="mt ${t.detail ? "go" : ""}" ${attrs} style="--c:${esc(t.color)};--ink:${esc(t.ink)}"
+        ${t.detail ? `role="button" tabindex="0" aria-label="${esc(t.name)}, ${esc(t.sub || "")}, ${t.pct.toFixed(1)}%"` : ""}>
+        <span class="t-name">${esc(t.name)}</span><span class="t-pct">${t.pct.toFixed(t.pct < 10 ? 1 : 0)}%</span>
+        ${t.sub ? `<span class="t-sub">${esc(t.sub)}</span>` : ""}
+      </div>`;
+    el.innerHTML = tiles.map((t, i) => html(t, `data-i="${i}"`)).join("") + groups.map((g, i) => html(g, `data-g="${i}"`)).join("");
+    body.appendChild(el);
+    const nodes = [...el.querySelectorAll("[data-i]")], groupNodes = [...el.querySelectorAll("[data-g]")];
+
+    const place = (n, x, y, w, h) => {
+      Object.assign(n.style, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px`,
+        borderRadius: `${Math.max(3, Math.min(12, w / 3, h / 3))}px` });
+      // how much text fits: everything, name + share, sideways in a tall thin tile, on one line in a flat one, the share alone, or nothing
+      n.dataset.fit = w >= 120 && h >= 92 ? "big" : w >= 74 && h >= 62 ? "full" : w >= 64 && h >= 40 ? "name"
+        : w >= 15 && w < 64 && h >= 96 ? "tall" : w >= 110 && h >= 15 && h < 40 ? "line" : w >= 38 && h >= 22 ? "pct" : "none";
+    };
+    let seq = 0;
+    const layout = () => {
+      const W = el.clientWidth, H = el.clientHeight;
+      if (!W || !H) return;
+      const OUTER = 6, INNER = 3;   // gap between groups / between tiles of one group
+      let k = 0;
+      squarify(groups.map((g) => g.value), 0, 0, W + OUTER, H + OUTER).forEach((g, gi) => {
+        const list = b.groups[gi].tiles, w = g.w - OUTER, h = g.h - OUTER;
+        const collapsed = list.length > 1 && Math.min(w, h) < 58;
+        groupNodes[gi].hidden = !collapsed;
+        if (collapsed) place(groupNodes[gi], g.x, g.y, Math.max(w, 1), Math.max(h, 1));
+        squarify(list.map((t) => t.value), g.x, g.y, w + INNER, h + INNER).forEach((r) => {
+          const n = nodes[k++];
+          n.hidden = collapsed;
+          if (!collapsed) place(n, r.x, r.y, Math.max(r.w - INNER, 1), Math.max(r.h - INNER, 1));
+        });
+      });
+      if (!seq++ && look.motion !== false) {   // first draw: tiles appear one after another, biggest area first
+        [...el.children].filter((n) => !n.hidden).forEach((n, i) => n.style.setProperty("--d", `${i * 24}ms`));
+        el.classList.add("enter");
+      }
+    };
+    new ResizeObserver(layout).observe(el);
+
+    // hover: the same dark details card as the charts; click / Enter: the position's details
+    const tip = (n) => {
+      if (n.dataset.g != null) {
+        const g = groups[n.dataset.g];
+        return `<b><i style="--c:${esc(g.color)}"></i>${esc(g.name)}</b><span class="l">${esc(g.sub)} · ${esc(g.total)} · ${g.pct.toFixed(1)}%</span>`
+          + g.members.map((t) => tipRow(t.color, t.name, `${t.pct.toFixed(1)}%`)).join("");
+      }
+      const t = tiles[n.dataset.i];
+      return `<b><i style="--c:${esc(t.color)}"></i>${esc(t.name)}</b><span class="l">${esc(t.group)}</span>`
+        + `<div class="r"><span>${esc(t.sub || "")}</span><em>${t.pct.toFixed(1)}%</em></div>`;
+    };
+    el.addEventListener("pointerover", (e) => {
+      const n = e.target.closest(".mt");
+      if (!n || e.pointerType !== "mouse") return;
+      ptip.innerHTML = tip(n); ptip.hidden = false; placeChartTip();
+    });
+    el.addEventListener("pointerleave", () => { ptip.hidden = true; });
+    const pick = (e) => { const n = e.target.closest(".mt.go"); if (n) { ptip.hidden = true; openDetail(tiles[n.dataset.i].detail); } };
+    el.addEventListener("click", pick);
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(e); } });
   },
 
   fold(body, b) {
@@ -410,7 +578,7 @@ const BLOCKS = {
     const show = (i) => {
       btns.forEach((x, j) => { x.classList.toggle("on", i === j); x.setAttribute("aria-selected", i === j); });
       panes.forEach((x, j) => { x.hidden = i !== j; });
-      $(".dtabs-blurb", el).textContent = b.tabs[i].blurb || "";
+      { const bl = $(".dtabs-blurb", el); bl.textContent = b.tabs[i].blurb || ""; bl.hidden = !b.tabs[i].blurb; }
       if (!drawn.has(i)) {
         drawn.add(i);
         for (const c of b.tabs[i].cards) panes[i].appendChild(renderSection(c));
@@ -484,7 +652,7 @@ const BLOCKS = {
       try {
         const res = await (await api(b.url, { method: "POST" })).json();
         toast(res.error || res.status, !!res.error);
-        if (!res.error) load();
+        if (!res.error) { MEMORY.clear(); load(); }
       } catch (e) {
         toast(`Could not reach the server (${e.message})`, true);
       } finally {
@@ -516,11 +684,46 @@ const BLOCKS = {
       const r = await api(b.action, { method: "POST", body: new FormData(form) });
       const res = await r.json();
       toast(res.error || res.status, !!res.error);
-      if (!res.error) load();
+      if (!res.error) { MEMORY.clear(); load(); }
     });
     body.appendChild(form);
   },
 };
+
+// ---------- Position details (web/pages/details.py), in a sheet like the snapshot editor ----------
+async function openDetail(name) {
+  const back = $("#detail-backdrop"), body = $("#detail-body");
+  $("#detail-eyebrow").textContent = "";
+  $("#detail-title").textContent = name;
+  $("#detail-value").textContent = "";
+  body.innerHTML = `<div class="card skeleton" style="min-height:200px"></div>`;
+  back.hidden = false;
+  document.body.style.overflow = "hidden";
+  const q = new URLSearchParams({ name });
+  const snap = route().params.get("snapshot");
+  if (snap) q.set("snapshot", snap);
+  if (PHONE.matches) q.set("phone", "1");
+  try {
+    const res = await (await api(`/api/detail/position?${q}`)).json();
+    if (back.hidden || $("#detail-title").textContent !== name) return;   // closed or another one opened meanwhile
+    if (res.error) { body.innerHTML = `<p class="muted">${esc(res.error)}</p>`; return; }
+    $("#detail-eyebrow").textContent = res.eyebrow || "";
+    $("#detail-value").textContent = res.value || "";
+    body.innerHTML = "";
+    for (const b of res.blocks) BLOCKS[b.type]?.(body, b);
+    body.querySelectorAll(".item.go").forEach((r) => r.classList.remove("go"));
+  } catch (e) {
+    body.innerHTML = `<p class="muted">Could not load it (${esc(e.message)})</p>`;
+  }
+}
+function closeDetail() {
+  $("#detail-backdrop").hidden = true;
+  document.body.style.overflow = "";
+  hideChartTip();
+}
+$("#detail-close").addEventListener("click", closeDetail);
+$("#detail-backdrop").addEventListener("click", (e) => { if (e.target.id === "detail-backdrop") closeDetail(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#detail-backdrop").hidden) closeDetail(); });
 
 // ---------- Toast ----------
 let toastTimer;
@@ -640,6 +843,7 @@ $("#sheet-save").addEventListener("click", async () => {
   if (res.error) { $("#sheet-msg").textContent = res.error; return; }
   closeSheet();
   toast(`${res.replaced ? "Replaced" : "Saved"} ${res.saved}`);
+  MEMORY.clear();
   load();
 });
 
@@ -666,6 +870,7 @@ $("#open-settings").addEventListener("click", async () => {
         if (name === "demo") return location.reload();
         if (["privacy", "motion", "chart_size"].includes(name)) applyLook({ ...look, [name]: value });
         if (name === "show_backtest") document.querySelectorAll("[data-page=backtest]").forEach((a) => (a.hidden = !value));
+        MEMORY.clear();
         // drop the page's own value for this setting (if any) so the saved one shows
         const { page, params } = route();
         if (params.has(name)) { params.delete(name); go(page, params); } else load();

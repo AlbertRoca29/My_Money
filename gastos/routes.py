@@ -19,7 +19,7 @@ from flask import Blueprint, Response, abort, jsonify, request, send_from_direct
 import gsheet
 import storage
 
-from . import db
+from . import db, wallet
 
 WEB = Path(__file__).parent / "web"
 RECEIPT_TYPES = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".pdf"}
@@ -108,3 +108,28 @@ def info():
 def export_csv():
     return Response(db.to_csv(), mimetype="text/csv",
                     headers={"Content-Disposition": "attachment; filename=gastos.csv"})
+
+
+# ---------------------------------------------------------------- Google Wallet (wallet.py, ../android/)
+@bp.post("/api/wallet/notify")
+def wallet_notify():
+    """From the phone app, with its token instead of the sign-in cookie (auth.py lets this one path through)."""
+    if not wallet.token_ok(request.headers.get("Authorization", "")):
+        return jsonify({"error": "Bad token"}), 401
+    body = request.get_json(force=True, silent=True) or {}
+    if body.get("title") == "My Money Wallet test":  # the app's "Save and send a test" button
+        return jsonify({"test": True})
+    item, created = wallet.add(str(body.get("title") or ""), str(body.get("text") or ""), body.get("when"))
+    if not item:
+        return jsonify({"ignored": True})  # 200: not a payment, so the phone shouldn't retry it
+    return jsonify({"item": item, "created": created}), 201 if created else 200
+
+
+@bp.get("/api/wallet/pending")
+def wallet_pending():
+    return jsonify(wallet.pending())
+
+
+@bp.delete("/api/wallet/pending/<pid>")
+def wallet_dismiss(pid):
+    return jsonify({"dismissed": wallet.dismiss(pid)})

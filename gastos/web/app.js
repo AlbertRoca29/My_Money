@@ -15,6 +15,8 @@ const state = {
   list: { q: "", kind: "all", cat: "", sort: "date", catOpen: false },
   period: null,                  // Stats: "12m" (last 12 months) or a year, "2025"; null = Settings > Stats open on
   statCat: "",                   // Stats: the category drawn month by month (click one in "Average per month")
+  homeCat: "",                   // Home: the category opened from "Where it went"
+  homeDay: "",                   // Home: the day opened from the calendar ("2026-11-07")
   jumpTo: null,                  // after switching view, scroll to (and flash) this element id
   settings: {},                  // ../../settings.py values (hide_others, top_min, budget…)
 };
@@ -114,7 +116,7 @@ function row(e, withDate = false, withCat = true) {
   return `<button class="row" data-id="${esc(e.id)}">
     <span class="avatar" style="--c:${colorOf(e.category)}">${glyph(e.category)}</span>
     <span class="row-main">
-      <span class="row-name">${esc(e.name)}${e.receipt ? ' <span class="clip" title="Has receipt">📎</span>' : ""}</span>
+      <span class="row-name">${esc(e.name)}${e.receipt ? ' <span class="clip" title="Has receipt">📎</span>' : ""}${e.id.startsWith("w") ? ' <span class="auto" title="Added by itself from a Google Wallet payment">📲</span>' : ""}</span>
       <span class="row-sub">${[withCat && label(e.category), withDate && dayName(e.date)].filter(Boolean).map(esc).join(" · ")}</span>
     </span>
     <span class="row-amt ${cls}">${sign}${eur(Math.abs(e.amount))}</span>
@@ -162,7 +164,7 @@ function monthChart(months) {
   }).join("");
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Income and spending per month">
     ${grid}${bars}</svg>
-    <div class="legend"><span><i style="background:var(--pos)"></i>Income</span><span><i style="background:var(--neg)"></i>Spent</span><span class="muted">${phone ? "Tap a month for details" : "Click a month to open it"}</span></div>`;
+    <div class="legend"><span><i style="background:var(--pos)"></i>Income</span><span><i style="background:var(--neg)"></i>Spent</span></div>`;
 }
 
 // The month's spending as one stacked bar, then the biggest categories (the rest summed as "Other").
@@ -170,9 +172,10 @@ function catStack(pairs, total) {
   if (!pairs.length) return `<p class="empty">Nothing spent yet.</p>`;
   const top = pairs.slice(0, 5), rest = pairs.slice(5).reduce((a, [, v]) => a + v, 0);
   const parts = [...top.map(([c, v]) => [label(c), v, colorOf(c), c]), ...(rest ? [["Other", rest, "#C9CED4", ""]] : [])];
-  const go = (cat, n, v) => (cat ? `data-cat="${esc(cat)}" ${tipAttr(n, `${eur(v)} · ${pct(v / total)}`, "Click to see these movements")}` : tipAttr(n, `${eur(v)} · ${pct(v / total)}`));
+  const go = (cat, n, v) => (cat ? `data-homecat="${esc(cat)}" ${tipAttr(n, `${eur(v)} · ${pct(v / total)}`, state.homeCat === cat ? "Click again to close" : "Click to see its details")}` : tipAttr(n, `${eur(v)} · ${pct(v / total)}`));
   return `<div class="stack">${parts.map(([n, v, c, cat]) => `<i style="flex:${v};background:${c}" ${go(cat, n, v)}></i>`).join("")}</div>
-    <div class="legend-list">${parts.map(([n, v, c, cat]) => `<div class="${cat ? "go" : ""}" ${go(cat, n, v)}><i style="background:${c}"></i><span>${esc(n)}</span><b>${eur0(v)}</b><em>${pct(v / total)}</em></div>`).join("")}</div>`;
+    <div class="legend-list stickers">${parts.map(([n, v, c, cat]) => `<div class="${cat ? "go" : ""} ${cat && state.homeCat === cat ? "on" : ""}" ${go(cat, n, v)}>
+      <span class="avatar sm" style="--c:${c}">${cat ? glyph(cat) : "✦"}</span><span>${esc(n)}</span><b>${eur0(v)}</b><em>${pct(v / total)}</em></div>`).join("")}</div>`;
 }
 
 // ---------------------------------------------------------------- desktop charts (hover shows #tip, clicks drill in)
@@ -198,8 +201,8 @@ function calendar(key) {
   const cells = Array.from({ length: days }, (_, i) => {
     const d = i + 1, iso = `${key}-${String(d).padStart(2, "0")}`, v = per[d], n = inMonth(key).filter((e) => e.date === iso && shown(e)).length;
     const a = v ? 0.12 + 0.78 * Math.sqrt(v / max) : 0;
-    return `<button type="button" class="cal-day ${iso === today ? "today" : ""} ${a > 0.6 ? "dark" : ""}" data-day="${iso}" ${iso > today ? "disabled" : ""}
-      style="--a:${a.toFixed(3)}" ${tipAttr(dayName(iso), v ? `Spent ${eur(v)}` : "Nothing spent", n ? `${n} movement${n > 1 ? "s" : ""} · click to see` : iso <= today ? "Click to add one" : "")}>
+    return `<button type="button" class="cal-day ${iso === today ? "today" : ""} ${a > 0.6 ? "dark" : ""} ${state.homeDay === iso ? "on" : ""}" data-day="${iso}" ${iso > today ? "disabled" : ""}
+      style="--a:${a.toFixed(3)}" ${tipAttr(dayName(iso), v ? `Spent ${eur(v)}` : "Nothing spent", n ? `${n} movement${n > 1 ? "s" : ""} · click to see` : iso <= today ? "Click to see the day" : "")}>
       <span>${d}</span>${v ? `<b>${compact(Math.round(v))}</b>` : ""}</button>`;
   }).join("");
   const spentDays = per.filter((v) => v > 0).length, elapsed = key === today.slice(0, 7) ? +today.slice(8) : days;
@@ -326,7 +329,7 @@ function touchTip(ev) {
   hideTip();
   if (first) { showTip(ev, el.dataset.tip); bar.classList.add("on"); return true; }
   // something that only informs (no action of its own): the tap shows its numbers
-  if (el && !bar && !el.matches("button, a, .go, [data-cat], [data-q], [data-statcat]")) { showTip(ev, el.dataset.tip); return true; }
+  if (el && !bar && !el.matches("button, a, .go, [data-cat], [data-q], [data-statcat], [data-homecat]")) { showTip(ev, el.dataset.tip); return true; }
   return false;   // anything else acts at once, with no tooltip left behind
 }
 document.addEventListener("click", (ev) => { if (touching && !ev.target.closest("#view [data-tip]")) hideTip(); });
@@ -367,6 +370,29 @@ function catPicker(kind, cat) {
   </div>`;
 }
 
+// Home's pop-out cards, like the one Stats opens for a category: a category of "Where it went" (this month's
+// movements in it and the last 12 months), and a day of the calendar (its movements, and a button to add one).
+function homeCatCard(cat) {
+  const es = inMonth(state.month).filter((e) => e.category === cat && shown(e)).sort((a, b) => b.amount - a.amount);
+  const sum = es.filter(counts).reduce((a, e) => a + e.amount, 0);
+  const keys = Array.from({ length: 12 }, (_, i) => shiftMonth(state.month, i - 11));
+  return `<section class="card" id="homecat"><h2><span class="h-title"><span class="h-ico">${glyph(cat)}</span>${esc(label(cat))}</span>
+      <button type="button" class="x-btn" data-homecat="${esc(cat)}" aria-label="Close">✕</button></h2>
+    <p class="summary">${es.length} movement${es.length === 1 ? "" : "s"} in ${esc(monthName(state.month, { month: "long" }))} · <b>${eur(sum)}</b></p>
+    ${es.length ? `<div class="rows">${es.slice(0, 8).map((e) => row(e, true)).join("")}</div>` : ""}
+    <h3 class="sub-h">Last 12 months</h3>${categoryChart(cat, keys)}
+    <p class="see"><button type="button" class="link" data-cat="${esc(cat)}">See every movement →</button></p></section>`;
+}
+function homeDayCard(iso) {
+  const es = state.entries.filter((e) => e.date === iso && shown(e));
+  const t = totals(es);
+  return `<section class="card" id="homeday"><h2><span class="h-title">${esc(dayName(iso))}</span>
+      <button type="button" class="x-btn" data-homeday="${esc(iso)}" aria-label="Close">✕</button></h2>
+    <p class="summary">${es.length ? `${es.length} movement${es.length === 1 ? "" : "s"}${t.spent ? ` · spent <b>${eur(t.spent)}</b>` : ""}${t.income ? ` · income <b class="pos">${eur(t.income)}</b>` : ""}` : "Nothing this day."}</p>
+    ${es.length ? `<div class="rows">${es.map((e) => row(e)).join("")}</div>` : ""}
+    <p class="see"><button type="button" class="link" data-addday="${esc(iso)}">+ Add a movement on this day</button></p></section>`;
+}
+
 // ---------------------------------------------------------------- views
 const views = {
   home() {
@@ -379,7 +405,7 @@ const views = {
       .filter((e) => e.date.slice(8) <= upTo)).spent).filter((v) => v > 0);
     const avg = prev.length ? prev.reduce((a, b) => a + b, 0) / prev.length : null;
     const vs = avg ? (t.spent - avg) / avg : null;
-    const avgLabel = upTo === "31" ? "the 6-month average" : `usual by day ${Number(upTo)}`;
+    const avgLabel = "the 6-month average";   // only for a finished month: mid-month comparisons were noise
     const byCat = sumBy(month.filter((e) => e.kind === "expense" && counts(e)), (e) => e.category);
     // The 3 biggest expenses; a 4th and 5th only when they are above the limit in Settings.
     const minTop = Number(state.settings.top_min ?? 30);
@@ -393,7 +419,7 @@ const views = {
         <section class="hero">
           <div class="eyebrow">Spent in ${esc(monthName(state.month, { month: "long" }))}</div>
           <div class="big">${eur(t.spent)}</div>
-          ${vs === null ? "" : `<div class="delta"><b class="${vs > 0 ? "neg" : "pos"}">${vs > 0 ? "+" : "−"}${pct(Math.abs(vs))}</b> vs ${avgLabel}</div>`}
+          ${vs === null || upTo !== "31" ? "" : `<div class="delta"><b class="${vs > 0 ? "neg" : "pos"}">${vs > 0 ? "+" : "−"}${pct(Math.abs(vs))}</b> vs ${avgLabel}</div>`}
         </section>
         <div class="duo">
           <div><span>Income</span><b class="pos">${eur0(t.income)}</b></div>
@@ -404,11 +430,13 @@ const views = {
         ${budgetBar(t.spent, upTo)}
       </div>
       <section class="card"><h2>Where it went</h2>${catStack(byCat, t.spent)}</section>
+      ${state.homeCat ? homeCatCard(state.homeCat) : ""}
       <section class="card">
         <h2>Biggest expenses <a href="#list" class="link">See all</a></h2>
         ${top.length ? `<div class="rows">${top.map((e) => row(e)).join("")}</div>` : `<p class="empty">Nothing spent this month yet.</p>`}
       </section>
-      ${state.settings.calendar === false ? "" : `<section class="card"><h2>Calendar <span class="h-sub">${PHONE.matches ? "Tap" : "Click"} a day</span></h2>${calendar(state.month)}</section>`}
+      ${state.settings.calendar === false ? "" : `<section class="card"><h2>Calendar</h2>${calendar(state.month)}</section>`}
+      ${state.homeDay && state.homeDay.startsWith(state.month) && state.settings.calendar !== false ? homeDayCard(state.homeDay) : ""}
       ${earned.length ? `<section class="card"><h2>Biggest earnings &amp; losses</h2><div class="rows">${earned.map((e) => row(e)).join("")}</div></section>` : ""}`;
   },
 
@@ -480,11 +508,11 @@ const views = {
         ${best ? `<div class="tile go" data-month="${best.key}" ${tipAttr("Click to open it")}><span>Cheapest month</span><b>${esc(monthName(best.key, { month: "short" }))} · ${eur0(best.spent)}</b></div>` : ""}
       </section>
       <section class="card wide"><h2>Income vs spent</h2>${monthChart(months)}</section>
-      <section class="card wide"><h2>Saved per month <span class="h-sub">Income minus spending, and the running total</span></h2>${savedChart(months)}</section>
-      <section class="card"><h2>Average per month by category <span class="h-sub">${PHONE.matches ? "Tap" : "Click"} one</span></h2>${catBars(byCat, byCat.reduce((a, [, v]) => a + v, 0), true)}</section>
-      ${state.statCat ? `<section class="card" id="statcat"><h2><span class="h-title"><span class="h-ico">${glyph(state.statCat)}</span>${esc(label(state.statCat))}</span><span class="h-sub">Month by month</span><button type="button" class="x-btn" data-statcat="${esc(state.statCat)}" aria-label="Close">✕</button></h2>${categoryChart(state.statCat, keys)}
+      <section class="card wide"><h2>Saved per month</h2>${savedChart(months)}</section>
+      <section class="card"><h2>Average per month by category</h2>${catBars(byCat, byCat.reduce((a, [, v]) => a + v, 0), true)}</section>
+      ${state.statCat ? `<section class="card" id="statcat"><h2><span class="h-title"><span class="h-ico">${glyph(state.statCat)}</span>${esc(label(state.statCat))}</span><button type="button" class="x-btn" data-statcat="${esc(state.statCat)}" aria-label="Close">✕</button></h2>${categoryChart(state.statCat, keys)}
         <p class="see"><button type="button" class="link" data-cat="${esc(state.statCat)}">See every movement →</button></p></section>` : ""}
-      <section class="card"><h2>Where the money goes <span class="h-sub">${PHONE.matches ? "Tap" : "Click"} a name</span></h2>
+      <section class="card"><h2>Where the money goes</h2>
         ${places.length ? `<ol class="places">${places.map((p) => `<li data-q="${esc(p.name)}" ${tipAttr(p.name, `${eur(p.total)} in ${p.n} movement${p.n > 1 ? "s" : ""}`, `${eur(p.total / p.n)} each on average`, "Click to search for it")}><span>${glyph(p.cat)} ${esc(p.name)} <span class="muted">×${p.n}</span></span><b>${eur0(p.total)}</b></li>`).join("")}</ol>` : `<p class="empty">Nothing yet.</p>`}
       </section>
       <section class="card"><h2>Income sources</h2>${catBars(income, incomeTotal)}</section>`;
@@ -518,6 +546,8 @@ function openSheet(entry = null, defaults = {}) {
   const e = entry || { kind: "expense", name: "", category: "", date: todayIso(), amount: "", gross: "", paid_by_other: false, note: "", ...defaults };
   const dlg = $("#sheet");
   let kind = e.kind, category = e.category, receipt = e.receipt || null, receiptFile = null, catTouched = !!entry;
+  if (!entry && e.name && !category)   // a card payment from Wallet: the category you used last time for that name
+    category = state.entries.find((x) => x.kind === kind && norm(x.name) === norm(e.name))?.category || "";
 
   // Names typed before for this kind, most used first: shown as chips under the field, never as a dropdown.
   function names() {
@@ -654,6 +684,7 @@ function openSheet(entry = null, defaults = {}) {
       const known = entry ? null : state.entries.find((x) => x.kind === kind && norm(x.name) === norm(e.name));
       await store.saveEntry({ id: entry?.id, kind, name: known ? known.name : e.name, category, date: e.date, amount, gross,
         paid_by_other: kind === "expense" && e.paid_by_other, receipt, note: e.note });
+      if (e.walletId) await store.walletDismiss(e.walletId).catch(() => {});
       dlg.close();
       toast(entry ? "Saved" : `Added ${eur(amount)}`);
       state.month = e.date.slice(0, 7);
@@ -748,7 +779,40 @@ function render() {
   drawMonthPop();
 }
 
+// ---------------------------------------------------------------- Google Wallet inbox
+// Card payments the phone app (../../android/) sent; tap one to add it, ✕ to drop it.
+state.wallet = [];
+function drawInbox() {
+  const box = $("#inbox"), items = state.wallet;
+  box.hidden = !items.length;
+  box.innerHTML = items.length ? `<p class="inbox-head">📲 ${items.length === 1 ? "1 card payment" : `${items.length} card payments`} to review</p>
+    ${items.map((i) => `<div class="inbox-item">
+      <button class="inbox-add" data-wallet="${esc(i.id)}"><b>${esc(i.name)}</b><span>${esc(dayName(i.date))} · ${esc(i.time || "")}</span><em>${eur(i.amount)}</em></button>
+      <button class="inbox-x" data-wallet-x="${esc(i.id)}" aria-label="Drop this payment">✕</button></div>`).join("")}` : "";
+}
+async function loadWallet() {
+  try { state.wallet = await store.walletPending(); } catch { state.wallet = []; }
+  drawInbox();
+}
+$("#inbox").addEventListener("click", async (ev) => {
+  const add = ev.target.closest("[data-wallet]"), drop = ev.target.closest("[data-wallet-x]");
+  if (add) {
+    const i = state.wallet.find((x) => x.id === add.dataset.wallet);
+    // A name you already use: the same, or one starting the other ("baluard" for "BALUARD VALENCIA"), latest first
+    const n = norm(i.name), mine = state.entries.filter((x) => x.kind === "expense");
+    const known = mine.find((x) => norm(x.name) === n)
+      || mine.find((x) => { const m = norm(x.name); return m.length >= 4 && (n.startsWith(m) || m.startsWith(n)); });
+    openSheet(null, { name: known ? known.name : i.name, amount: String(i.amount).replace(".", ","), date: i.date,
+      walletId: i.id });
+  } else if (drop) {
+    drop.disabled = true;
+    try { await store.walletDismiss(drop.dataset.walletX); await loadWallet(); toast("Dropped"); }
+    catch (err) { toast(err.message, true); drop.disabled = false; }
+  }
+});
+
 async function reload() {
+  loadWallet();
   const early = store.cachedEntries();   // draw the last list at once; the server may still be waking up
   if (early && !state.entries?.length) { state.entries = early; render(); }
   try {
@@ -767,14 +831,18 @@ async function reload() {
 $("#view").addEventListener("click", async (ev) => {
   if (touchTip(ev)) return;
   // Calendar: a day with movements shows them in Movements; an empty day opens a new one on that date.
-  const calDay = ev.target.closest(".cal-day");
+  const calDay = ev.target.closest(".cal-day, [data-homeday]");
   if (calDay) {
-    const iso = calDay.dataset.day;
-    if (state.entries.some((e) => e.date === iso && shown(e))) {
-      Object.assign(state.list, { q: "", kind: "all", cat: "", sort: "date", catOpen: false });
-      return jump("list", `d-${iso}`);
-    }
-    return openSheet(null, { date: iso });
+    const iso = calDay.dataset.day || calDay.dataset.homeday;
+    state.homeDay = state.homeDay === iso ? "" : iso;
+    return state.homeDay ? jump("home", "homeday") : render();
+  }
+  const addDay = ev.target.closest("[data-addday]");
+  if (addDay) return openSheet(null, { date: addDay.dataset.addday });
+  const homeCat = ev.target.closest("[data-homecat]");
+  if (homeCat) {
+    state.homeCat = state.homeCat === homeCat.dataset.homecat ? "" : homeCat.dataset.homecat;
+    return state.homeCat ? jump("home", "homecat") : render();
   }
   // A category (Home's "Where it went", Stats' "See every movement"): Movements filtered to it.
   const goCat = ev.target.closest("[data-cat]:not(.catopt)");

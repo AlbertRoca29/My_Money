@@ -85,6 +85,21 @@
     </aside>
   </div>
 
+  <!-- Position details: what a click on a position shows, filled by app.js from /api/detail/position -->
+  <div class="sheet-backdrop" id="detail-backdrop" hidden>
+    <aside class="sheet detail" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+      <div class="sheet-head">
+        <div>
+          <div class="eyebrow" id="detail-eyebrow"></div>
+          <h3 id="detail-title"></h3>
+          <h2 id="detail-value"></h2>
+        </div>
+        <button class="icon-btn" id="detail-close" aria-label="Close">✕</button>
+      </div>
+      <div class="detail-body" id="detail-body"></div>
+    </aside>
+  </div>
+
   <div class="toast" id="toast" hidden></div>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>

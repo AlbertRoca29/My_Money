@@ -125,6 +125,18 @@ html.sliding, html.sliding body { overflow-x: clip; }
 .gear { flex: none; display: grid; place-items: center; width: 40px; height: 40px; color: var(--ink-2); }
 
 main { max-width: 640px; margin: 0 auto; padding: 4px 16px; }
+/* Google Wallet payments waiting to be added (app.js drawInbox) */
+.inbox { max-width: 1100px; margin: 12px auto 0; padding: 0 16px; display: grid; gap: 6px; }
+.inbox-head { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted, #666); }
+.inbox-item { display: flex; gap: 6px; }
+.inbox-add { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr auto; align-items: center; column-gap: 12px;
+  text-align: left; padding: 10px 14px; border-radius: 14px; border: 1px dashed var(--accent, #3b82f6);
+  background: color-mix(in srgb, var(--accent, #3b82f6) 7%, transparent); color: inherit; font: inherit; cursor: pointer; }
+.inbox-add b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inbox-add span { grid-row: 2; font-size: 12px; opacity: .65; }
+.inbox-add em { grid-row: 1 / 3; grid-column: 2; font-style: normal; font-weight: 600; font-variant-numeric: tabular-nums; }
+.inbox-x { width: 40px; border-radius: 14px; border: 0; background: transparent; color: inherit; opacity: .5; cursor: pointer; font-size: 15px; }
+.inbox-x:hover { opacity: 1; }
 .banner { background: #FFF4D6; color: #6B4E00; padding: 8px 16px; font-size: 13px; text-align: center; }
 
 /* ---------- Home ---------- */
@@ -182,6 +194,7 @@ main { max-width: 640px; margin: 0 auto; padding: 4px 16px; }
 }
 .row-main { flex: 1; min-width: 0; display: grid; }
 .row-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-name .auto { font-size: 12px; opacity: .7; }
 .row-sub { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row-amt { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .row-amt.other { color: var(--muted); text-decoration: line-through; }
@@ -517,6 +530,15 @@ html[data-privacy=on] .chart text, html[data-privacy=on] .tip, html[data-privacy
   .card h2 { flex-wrap: wrap; }
   .card h2 .h-sub { order: 3; flex-basis: 100%; margin: 4px 0 0; }
 }
+
+/* "Where it went" with the category stickers, and Home's pop-out cards (a category, a calendar day) */
+.legend-list.stickers { gap: 6px; }
+.legend-list.stickers div { grid-template-columns: 28px 1fr auto 38px; }
+.legend-list.stickers .avatar.sm { width: 28px; height: 28px; }
+.legend-list .go.on { background: var(--surface); }
+.cal-day.on { box-shadow: inset 0 0 0 2px var(--accent); }
+.sub-h { margin: 18px 0 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
+#homecat .summary, #homeday .summary { margin: 0 0 10px; }
 
 /* ---------- Movements, calmer: smaller stickers, tighter rows ---------- */
 #view[data-view=list] .row { padding: 6px 4px; gap: 10px; }

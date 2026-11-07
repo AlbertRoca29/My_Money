@@ -101,18 +101,18 @@ def more(p):
     def cards(*fns):
         return [f(p) for f in fns]
     panel = tabs("More details", [
-        ("🧭", "Sources", "Which fund each exposure comes from", cards(attribution, sector_treemap)),
-        ("🌍", "Countries", "Country mix of the portfolio, the benchmark and every fund", cards(country_pies, region_donuts)),
-        ("🧩", "Funds", "What each fund brings, what it costs and how it is valued", cards(fund_profiles, fees, valuation)),
-        ("🎯", "Concentration", "How top-heavy you are, and how much your funds overlap",
+        ("🧭", "Sources", None, cards(attribution, sector_treemap)),
+        ("🌍", "Countries", None, cards(country_pies, region_donuts)),
+        ("🧩", "Funds", None, cards(fund_profiles, fees, valuation)),
+        ("🎯", "Concentration", None,
          cards(top_share, concentration, overlap)),
-        ("📝", "Notes", "Plain-language takeaways", cards(insights)),
+        ("📝", "Notes", None, cards(insights)),
     ], open=settings.get("details_open"))
     panel["start"] = settings.get("details_tab")
     return {"blocks": [panel], "bare": True}
 
 
-@section("Sector map", "Rectangle size = share of your equity. Hover for the benchmark's weight")
+@section("Sector map")
 def sector_treemap(p):
     r = data.lookthrough_result()
     port, bench = r["portfolio"]["sectors"], r["benchmark"]["sectors"]
@@ -121,14 +121,14 @@ def sector_treemap(p):
         labels=keys, parents=[""] * len(keys), values=[port[k] for k in keys],
         customdata=[[port[k], bench.get(k, 0), port[k] - bench.get(k, 0)] for k in keys],
         marker=dict(colors=[port[k] - bench.get(k, 0) for k in keys], cmid=0, line=dict(width=2, color="white"),
-                    colorscale=[[0, "#F3B6B8"], [0.5, "#EEF0F3"], [1, "#8DB8F8"]]),
+                    colorscale=[[0, "#EDC3C4"], [0.5, "#EEF0F3"], [1, "#AFC6EE"]]),
         texttemplate="<b>%{label}</b><br>%{customdata[0]:.1f}%", textfont=dict(size=14, color=INK),
         hovertemplate="<b>%{label}</b><br>You %{customdata[0]:.1f}% · " + _name() +
                       " %{customdata[1]:.1f}%<br>%{customdata[2]:+.1f} pp<extra></extra>"))
     return chart(style(fig, height=380, legend=False, hover="closest", margin=dict(l=0, r=0, t=0, b=0)))
 
 
-@section("Regions side by side", "Portfolio and benchmark, share of equity")
+@section("Regions side by side")
 def region_donuts(p):
     r = data.lookthrough_result()
     panels = [("Portfolio", r["portfolio"]["regions"]), (_name(), r["benchmark"]["regions"])]
@@ -144,7 +144,7 @@ def region_donuts(p):
     return chart(style(fig, height=340, legend=True, hover="closest", margin=dict(l=8, r=8, t=40, b=8)))
 
 
-@section("What the funds cost", "Ongoing charges (TER) per position, and what that is in euros a year")
+@section("What the funds cost")
 def fees(p):
     r = data.lookthrough_result()
     rows = [x for x in r["positions"] if x["type"] == "ETF" and x.get("ter")]
@@ -171,7 +171,7 @@ def fees(p):
     return chart(style(fig, height=110 + 34 * len(rows), legend=False, hover="closest"))
 
 
-@section("How the funds are valued", "Price/earnings and price/book of each position (lower = cheaper)")
+@section("How the funds are valued")
 def valuation(p):
     r = data.lookthrough_result()
     rows = [x for x in r["positions"] if x["type"] == "ETF" and x.get("pe") and x.get("pb")]
@@ -193,7 +193,7 @@ def valuation(p):
     return chart(style(fig, height=380, legend=False, hover="closest"))
 
 
-@section("Top-heavy?", "Share of your equity held by the largest 10, 50 and 100 companies")
+@section("Top-heavy?")
 def top_share(p):
     r = data.lookthrough_result()
     cards = []
@@ -226,8 +226,8 @@ def scorecard(p):
 @section("Positions", width="half")
 def positions(p):
     df = _tables()["positions"].sort_values("Weight %", ascending=False)
-    rows = [item(label, r["Type"], pct(r["Weight %"]), eur(r["€"]), color=BLUE if r["Type"] == "ETF" else GREEN)
-            for label, r in df.iterrows()]
+    rows = [item(label, r["Type"], pct(r["Weight %"]), eur(r["€"]), color=BLUE if r["Type"] == "ETF" else GREEN,
+                 detail=label) for label, r in df.iterrows()]
     return items(rows)
 
 
@@ -284,7 +284,7 @@ def countries(p):
     return [chart(_world_map(full, 220 if is_phone(p) else 460)), *mid, chart(_grouped_bars(full.drop("United States", errors="ignore").head(n)))]
 
 
-@section("Active weights", "Percentage points over (blue) or under (red) the benchmark")
+@section("Active weights")
 def active(p):
     n, t = _n(p, "countries"), _tables()
     s = t["sectors"]["Active (pp)"].sort_values(ascending=False)
@@ -317,10 +317,10 @@ def active_companies(p):
         fig = _diverging(ser).update_traces(customdata=[[x["weight"], x["benchmark_weight"]] for x in rows],
                                             hovertemplate="<b>%{y}</b><br>%{x:+.2f} pp<br>You %{customdata[0]:.2f}% · "
                                                           + bt + " %{customdata[1]:.2f}%<extra></extra>")
-        return {"blocks": [chart(fig)], "subtitle": f"Percentage points vs {bt}. Tap a bar for both weights"}
+        return {"blocks": [chart(fig)], "subtitle": f"vs {bt}"}
     labels = [f"{x['weight']:.2f}% vs {x['benchmark_weight']:.2f}%" for x in rows]
     return {"blocks": [chart(_diverging(ser, labels=labels))],
-            "subtitle": f"Labels: your weight vs {bt}"}
+            "subtitle": f"vs {bt}"}
 
 
 @section("Top companies")
@@ -384,7 +384,7 @@ def _country_slices(countries, min_pct=1.0, max_slices=12):
     return labels, values, [out_colors[l] if not l.startswith("Rest of") else REST_COLOR for l in labels]
 
 
-@section("Country mix", "By fund. Colour = continent; grey = countries under 1%")
+@section("Country mix")
 def country_pies(p):
     r = data.lookthrough_result()
     bt = _name()
@@ -412,7 +412,7 @@ def country_pies(p):
     return chart(style(fig, height=290 * nrows, legend=False, hover="closest", margin=dict(l=8, r=8, t=40, b=8)))
 
 
-@section("What each fund brings", "Sector and country mix of every fund (%)")
+@section("What each fund brings")
 def fund_profiles(p):
     r = data.lookthrough_result()
     n, bt = _n(p, "countries"), _name()
@@ -433,7 +433,7 @@ def fund_profiles(p):
     return blocks
 
 
-@section("Concentration", "Share held by the largest N companies", width="half")
+@section("Concentration", width="half")
 def concentration(p):
     r = data.lookthrough_result()
     bt, sp, sb = _name(), r["stats"]["portfolio"], r["stats"]["benchmark"]

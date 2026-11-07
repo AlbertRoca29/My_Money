@@ -1,6 +1,6 @@
 // Keeps the app shell available offline. Data requests (api/…) always go to the network;
 // store.js falls back to the last list it saw.
-const CACHE = "gastos-v11";
+const CACHE = "gastos-v14";
 const SHELL = ["./", "index.html", "style.css", "app.js", "store.js", "stickers.js", "icon.svg", "manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

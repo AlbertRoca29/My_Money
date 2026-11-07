@@ -30,3 +30,10 @@ sort rows there; the app sees it within half a minute.
   **gross** is the before-tax figure (the sheet's "Import (net)").
 - Amounts accept sums: `12,5 + 3`.
 - Typing a name you've used before picks its category automatically.
+
+## Google Wallet payments
+
+The Android app in [../android/](../android/README.md) sends each Wallet payment to `/api/wallet/notify`.
+They wait in a "to review" list at the top of Home (`wallet.py`, kept in storage as `wallet/pending.json`):
+tap one to add it, ✕ to drop it.
+

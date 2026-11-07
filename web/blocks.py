@@ -11,6 +11,7 @@ knows how to draw these block types; everything you see is decided here in Pytho
     chart     a Plotly figure                   chart(fig)
     table     a pandas DataFrame                table(df, formats={"€": eur})
     items     a list of rows                   items([item("Apple", "Stocks", "€1,200")])
+    shares    parts of a whole, as a bar        shares([("ETFs", "€12k", 60, "#4B80DF"), ...])
     notes     bullet points (**bold** allowed)  notes(["first", "second"])
     text      one paragraph                     text("...")
     fold      a collapsed "show more" row          fold("Notes", blocks=[notes([...])]) or fold("More", cards=[...])
@@ -60,11 +61,13 @@ def section(title, subtitle=None, width="full"):
 # ---------------------------------------------------------------------------
 # Blocks
 # ---------------------------------------------------------------------------
-def hero(label, value, chips=(), caption=None, unit=None):
+def hero(label, value, chips=(), caption=None, unit=None, stats=()):
     """The big balance at the top of a page. chips: [(text, tone)], tone in {"pos", "neg", None}.
-    unit: small text after the value, e.g. "/yr"."""
+    unit: small text after the value, e.g. "/yr". stats: [(label, value, tone)], drawn as plain figures
+    under the value (a quieter alternative to chips)."""
     return {"label": label, "value": value, "unit": unit, "caption": caption,
-            "chips": [{"text": t, "tone": tn} for t, tn in chips]}
+            "chips": [{"text": t, "tone": tn} for t, tn in chips],
+            "stats": [{"label": l, "value": v, "tone": tn} for l, v, tn in stats]}
 
 
 def empty_page(label, message, sections=()):
@@ -117,10 +120,11 @@ def table(df, formats=None, index=True, toned=(), max_rows=None, bar=None):
     return {"type": "table", "columns": cols, "rows": rows}
 
 
-def item(title, subtitle=None, value=None, sub_value=None, color=None, tone=None):
-    """One row of a list: coloured dot, title/subtitle on the left, value on the right."""
+def item(title, subtitle=None, value=None, sub_value=None, color=None, tone=None, detail=None):
+    """One row of a list: coloured dot, title/subtitle on the left, value on the right.
+    detail: a position name; clicking the row opens its details (/api/detail/position, web/pages/details.py)."""
     return {"title": title, "subtitle": subtitle, "value": value, "sub_value": sub_value,
-            "color": color, "tone": tone}
+            "color": color, "tone": tone, "detail": detail}
 
 
 def items(rows):
@@ -130,6 +134,25 @@ def items(rows):
 def _md(s):
     """Escape HTML, then turn **bold** into <strong>. That's all the markdown we need."""
     return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html.escape(str(s)))
+
+
+def shares(rows, stack=True):
+    """Parts of a whole: one stacked bar, then a row per part (colour, name, value, share).
+    rows: [(name, value text, share 0..100, colour)]. stack=False draws a small bar on each row instead."""
+    return {"type": "shares", "stack": stack,
+            "rows": [{"name": n, "value": v, "pct": round(float(p), 2), "color": c} for n, v, p, c in rows]}
+
+
+def piece(name, value, pct, color, ink, sub=None, detail=None):
+    """One tile of a mosaic(): its size is `value`; `sub` is the line under the name (e.g. the euros)."""
+    return {"name": name, "value": float(value), "pct": round(float(pct), 2), "color": color, "ink": ink,
+            "sub": sub, "detail": detail}
+
+
+def mosaic(groups):
+    """A treemap drawn by the browser: rounded tiles sized by value, grouped (wider gaps between groups).
+    groups: [(group name, [piece(...)])]. A tile with `detail` opens that position's details when clicked."""
+    return {"type": "mosaic", "groups": [{"name": g, "tiles": t} for g, t in groups if t]}
 
 
 def notes(lines):
@@ -184,11 +207,15 @@ def raw(kind, **data):
 # ---------------------------------------------------------------------------
 # Controls: inputs at the top of a page. Their values come back as `params` on every reload.
 # ---------------------------------------------------------------------------
-def select(name, label, options, value):
-    """options: [(value, label)] or [value]."""
+def select(name, label, options, value, arrows=False, groups=None):
+    """options: [(value, label)] or [value]. Drawn as a pill that opens a list (not the browser's own picker).
+    arrows: ‹ › buttons to step to the previous / next option. groups: one heading per option (e.g. the year),
+    shown in the list above the first option of each group."""
     opts = [{"value": str(o[0]), "label": str(o[1])} if isinstance(o, tuple) else {"value": str(o), "label": str(o)}
             for o in options]
-    return {"type": "select", "name": name, "label": label, "options": opts, "value": str(value)}
+    for o, g in zip(opts, groups or []):
+        o["group"] = str(g)
+    return {"type": "select", "name": name, "label": label, "options": opts, "value": str(value), "arrows": arrows}
 
 
 def number(name, label, value, min=None, max=None, step=1):
@@ -199,10 +226,11 @@ def date_input(name, label, value):
     return {"type": "date", "name": name, "label": label, "value": str(value)}
 
 
-def chips(name, options, value):
-    """A row of chips, one of them on. options: [(value, label)]."""
+def chips(name, options, value, fold=None):
+    """A row of chips, one of them on. options: [(value, label)].
+    fold: a label (e.g. "Compare with"); the row is then hidden behind one pill showing the choice."""
     return {"type": "chips", "name": name, "options": [{"value": str(v), "label": str(l)} for v, l in options],
-            "value": str(value)}
+            "value": str(value), "fold": fold}
 
 
 def toggle(name, label, value):

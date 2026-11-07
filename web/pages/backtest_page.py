@@ -74,9 +74,9 @@ def growth(p):
                                  showlegend=False, legendgroup=col,
                                  hovertemplate="%{y:.1f}%<extra>drawdown " + col + "</extra>"), 2, 1)
     fig.add_trace(go.Scatter(x=rel.index, y=rel.clip(lower=0), fill="tozeroy", mode="none", showlegend=False,
-                             fillcolor="rgba(0,182,122,0.18)", hoverinfo="skip"), 3, 1)
+                             fillcolor="rgba(47,163,131,0.16)", hoverinfo="skip"), 3, 1)
     fig.add_trace(go.Scatter(x=rel.index, y=rel.clip(upper=0), fill="tozeroy", mode="none", showlegend=False,
-                             fillcolor="rgba(229,72,77,0.18)", hoverinfo="skip"), 3, 1)
+                             fillcolor="rgba(217,104,108,0.16)", hoverinfo="skip"), 3, 1)
     fig.add_trace(go.Scatter(x=rel.index, y=rel, name=f"Lead over {name}", showlegend=False,
                              line=dict(color=GREEN if rel.iloc[-1] >= 0 else RED, width=2),
                              hovertemplate="%{y:+.1f}%<extra>lead</extra>"), 3, 1)

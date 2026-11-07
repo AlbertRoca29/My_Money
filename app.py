@@ -17,6 +17,7 @@ How it fits together
 
 This file only maps URLs to those functions. Every route returns JSON except "/portfolio".
 """
+import json
 import os
 from pathlib import Path
 
@@ -58,6 +59,22 @@ def plotly_js():
     return send_file(Path(plotly.__file__).parent / "package_data" / "plotly.min.js", max_age=86400)
 
 
+_PAGE_CACHE = {}
+
+
+@app.get("/api/detail/position")
+def position_detail():
+    """What opens when a position is clicked (web/pages/details.py): ?name=…&snapshot=YYYYMMDD."""
+    from web.pages import details
+    try:
+        return jsonify(details.position(request.args.get("name", ""), {**settings.current(), **request.args.to_dict()}))
+    except KeyError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:
+        app.logger.exception("detail failed")
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+
+
 @app.get("/api/page/<name>")
 def page(name):
     """Build a page. Its params are the saved settings (settings.py), overridden by the query string, which
@@ -65,7 +82,14 @@ def page(name):
     if name not in PAGES:
         abort(404)
     try:
-        return jsonify(PAGES[name].build({**settings.current(), **request.args.to_dict()}))
+        params = {**settings.current(), **request.args.to_dict()}
+        # the same page with the same settings and data is built once, not on every tab switch
+        key = (name, json.dumps(params, sort_keys=True, default=str), data.data_version(savings=True))
+        if key not in _PAGE_CACHE:
+            if any(k[2] != key[2] for k in _PAGE_CACHE):  # data changed: forget everything
+                _PAGE_CACHE.clear()
+            _PAGE_CACHE[key] = PAGES[name].build(params)
+        return jsonify(_PAGE_CACHE[key])
     except Exception as exc:  # e.g. a download failed before any section could run
         app.logger.exception("page %s failed", name)
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500

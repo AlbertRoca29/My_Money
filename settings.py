@@ -41,6 +41,9 @@ FIELDS = [
          options=[("12m", "The last 12 months"), ("year", "This year")]),
     dict(name="hide_others", group="Gastos", label="Hide what someone else paid", type="toggle", default=False,
          help="Leaves them out of Movements and Home"),
+    dict(name="wallet_auto", group="Gastos", label="Add known card payments by themselves", type="toggle",
+         default=True, help="A Google Wallet payment at a place you already have is added with that name and category "
+         "(marked 📲). New places still wait for you to review"),
     dict(name="trends_from", group="Overview", label="Charts start on", type="date", default=config.OVERVIEW_START),
     dict(name="cash_k", group="Returns", label=f"Cash next to {config.BENCHMARK_NAME} (k€)", type="number",
          default=config.BENCHMARK_CASH_K, min=0, max=500, step=1,

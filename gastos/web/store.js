@@ -49,6 +49,10 @@ export const saveEntry = (entry) =>
 // Merge spellings: every `kind` entry named in `from` gets the name `to`.
 export const renameNames = (kind, from, to) => call("POST", "api/rename", { kind, from, to });
 
+// Card payments the phone app sent from Google Wallet, waiting to be reviewed (../wallet.py).
+export const walletPending = () => call("GET", "api/wallet/pending");
+export const walletDismiss = (id) => call("DELETE", `api/wallet/pending/${id}`);
+
 export const deleteEntry = (id) => call("DELETE", `api/entries/${id}`);
 
 // Phone photos are 2–5 MB. Receipts stay readable at 1600 px on the long side and 70% quality,

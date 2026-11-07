@@ -37,8 +37,17 @@ SNAPSHOTS = config.SNAPSHOTS_TAB
 SNAPSHOT_HEADER = ["Date", "Category", "Asset", "Amount"]
 
 
+_fp = {}  # tab -> (rows object, its fingerprint): gsheet.rows returns the same object until it re-reads the sheet
+
+
 def _fingerprint(tab):
-    return hash(json.dumps(gsheet.rows(tab), default=str))
+    data = gsheet.rows(tab)
+    hit = _fp.get(tab)
+    if hit and hit[0] is data:
+        return hit[1]
+    fp = hash(json.dumps(data, default=str))
+    _fp[tab] = (data, fp)
+    return fp
 
 
 def data_version(savings=False):
@@ -151,6 +160,16 @@ def snapshot(day=None):
     return day, ps[day]
 
 
+def reference_day(day, days=30):
+    """The snapshot a change is measured from: the oldest one at most `days` before `day` (so 25 days back if
+    that is the oldest within 30), or, when none is that recent, the last one before `day`. None for the first."""
+    earlier = [d for d in portfolios() if d < day]
+    if not earlier:
+        return None
+    recent = [d for d in earlier if d >= day - pd.Timedelta(days=days)]
+    return min(recent) if recent else max(earlier)
+
+
 def parse_amount(v):
     """A number, or a sum typed in the editor like "100 + 50 - 30" (commas count as decimal points)."""
     if isinstance(v, (int, float)):
@@ -235,7 +254,10 @@ def lookthrough_result():
 # ---------------------------------------------------------------------------
 @cached
 def backtest_prices():
-    return backtest.load_prices(config.PRICE_SOURCES)
+    sources = config.PRICE_SOURCES
+    if settings.get("demo"):  # demo funds may lack a price source of their own (see demo.extra_price_sources)
+        sources = {**sources, **demo.extra_price_sources()}
+    return backtest.load_prices(sources)
 
 
 @cached

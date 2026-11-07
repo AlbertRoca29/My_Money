@@ -67,7 +67,10 @@ setup() {
     read -rsp "Paste the OAuth client secret (DEPLOY.md, step 4), then Enter: " SECRET; echo
     printf %s "$SECRET" | g secrets create my-money-oauth-secret --data-file=- --replication-policy automatic
   fi
-  for s in my-money-session-key my-money-oauth-secret; do
+  if ! g secrets describe my-money-wallet-token >/dev/null 2>&1; then  # the phone app's token (android/)
+    openssl rand -hex 32 | tr -d '\n' | g secrets create my-money-wallet-token --data-file=- --replication-policy automatic
+  fi
+  for s in my-money-session-key my-money-oauth-secret my-money-wallet-token; do
     g secrets add-iam-policy-binding "$s" --member "serviceAccount:$RUN_SA" \
       --role roles/secretmanager.secretAccessor >/dev/null
   done
@@ -81,11 +84,13 @@ setup() {
 deploy() {
   : "${SHEET_ID:?set SHEET_ID in deploy.env}" "${ALLOWED_EMAILS:?set ALLOWED_EMAILS in deploy.env}"
   : "${GOOGLE_CLIENT_ID:?set GOOGLE_CLIENT_ID in deploy.env}"
+  local WALLET_SECRET=""  # the phone app's token, once ./deploy.sh wallet-token made it
+  g secrets describe my-money-wallet-token >/dev/null 2>&1 && WALLET_SECRET=",WALLET_TOKEN=my-money-wallet-token:latest"
   # ^|^ makes "|" the separator, so ALLOWED_EMAILS may contain commas
   g run deploy "$SERVICE" --source . --region "$REGION" --service-account "$RUN_SA" \
     --allow-unauthenticated --max-instances 1 --memory 1Gi --cpu 1 --cpu-boost --timeout 900 \
     --set-env-vars "^|^MY_MONEY_PROJECT=$PROJECT|MY_MONEY_SHEET=$SHEET_ID|MY_MONEY_BUCKET=$BUCKET|ALLOWED_EMAILS=$ALLOWED_EMAILS|GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID|TASKS_AUDIENCE=$URL|SCHEDULER_EMAIL=$CRON_SA" \
-    --set-secrets SECRET_KEY=my-money-session-key:latest,GOOGLE_CLIENT_SECRET=my-money-oauth-secret:latest
+    --set-secrets SECRET_KEY=my-money-session-key:latest,GOOGLE_CLIENT_SECRET=my-money-oauth-secret:latest$WALLET_SECRET
   echo "Open $URL"
 }
 
@@ -103,6 +108,18 @@ schedule() {
   echo "Nightly refresh set. Run it now with:  gcloud --project $PROJECT scheduler jobs run my-money-refresh --location $REGION"
 }
 
+wallet_token() {
+  # Makes the token the Android app (android/) sends with each Wallet payment, once, and prints it
+  if ! g secrets describe my-money-wallet-token >/dev/null 2>&1; then
+    openssl rand -hex 32 | tr -d '\n' | g secrets create my-money-wallet-token --data-file=- --replication-policy automatic
+    g secrets add-iam-policy-binding my-money-wallet-token --member "serviceAccount:$RUN_SA" \
+      --role roles/secretmanager.secretAccessor >/dev/null
+    echo "Token made: run ./deploy.sh once so the app gets it."
+  fi
+  echo "Phone app token:  $(g secrets versions access latest --secret my-money-wallet-token)"
+  echo "Server URL:       $URL"
+}
+
 backup() {
   mkdir -p backup
   g storage cp -r "gs://$BUCKET/receipts" "gs://$BUCKET/lookthrough" backup/
@@ -110,6 +127,6 @@ backup() {
 }
 
 case "${1:-deploy}" in
-  setup) setup ;; deploy) deploy ;; schedule) schedule ;; backup) backup ;;
-  *) echo "usage: ./deploy.sh [setup|deploy|schedule|backup]"; exit 1 ;;
+  setup) setup ;; deploy) deploy ;; schedule) schedule ;; backup) backup ;; wallet-token) wallet_token ;;
+  *) echo "usage: ./deploy.sh [setup|deploy|schedule|backup|wallet-token]"; exit 1 ;;
 esac

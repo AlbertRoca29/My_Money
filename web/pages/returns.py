@@ -57,13 +57,14 @@ def build(p):
                      caption=f"{start[0]:%d %b %Y} → {end[0]:%d %b %Y} (snapshots)" + (" · not annualised" if short else ""),
                      unit=None if short else "/yr"),
         "controls": [chips("period", _periods(snaps), period)]
-                    + ([chips("bench", [(n, n) for n in (config.BENCHMARK_NAME, *config.EXTRA_BENCHMARKS)], _bench(p)[0])]
+                    + ([chips("bench", [(n, n) for n in (config.BENCHMARK_NAME, *config.EXTRA_BENCHMARKS)], _bench(p)[0],
+                              fold="Compare with")]
                        if config.BENCHMARK_ISIN and config.EXTRA_BENCHMARKS else []),
         "sections": [sec(p) for sec in (mwr_evolution, vs_benchmark, periods, money_in, monthly)],
     }
 
 
-@section("Money-weighted return over time", "From the start of the period, not annualised")
+@section("Money-weighted return over time")
 def mwr_evolution(p):
     snaps, flows = data.snaps_and_flows()
     _, start, end = _window(p, snaps)
@@ -131,9 +132,9 @@ def money_in(p):
                              line=dict(color=BLUE, width=3), mode="lines+markers", marker=dict(size=5),
                              hovertemplate="€%{y:,.0f}<extra>portfolio</extra>"), 1, 1)
     fig.add_trace(go.Scatter(x=dates, y=gain.clip(lower=0), fill="tozeroy", mode="none", showlegend=False,
-                             fillcolor="rgba(0,182,122,0.18)", hoverinfo="skip"), 2, 1)
+                             fillcolor="rgba(47,163,131,0.16)", hoverinfo="skip"), 2, 1)
     fig.add_trace(go.Scatter(x=dates, y=gain.clip(upper=0), fill="tozeroy", mode="none", showlegend=False,
-                             fillcolor="rgba(229,72,77,0.18)", hoverinfo="skip"), 2, 1)
+                             fillcolor="rgba(217,104,108,0.16)", hoverinfo="skip"), 2, 1)
     fig.add_trace(go.Scatter(x=dates, y=gain, name=f"Investment gain — {eur(gain.iloc[-1], sign=True)}",
                              line=dict(color=GREEN if gain.iloc[-1] >= 0 else RED, width=2),
                              hovertemplate="%{y:+,.0f} €<extra>gain</extra>"), 2, 1)
@@ -217,7 +218,7 @@ def vs_benchmark(p):
                              marker=dict(size=5), hovertemplate="€%{y:,.0f}<extra>you</extra>"))
     fig.update_yaxes(tickprefix="€")
     when = "the last 12 months" if period == "12m" else period
-    return {"subtitle": f"Same savings, same days, in {label} with €{k:g}k kept as cash",
+    return {"subtitle": f"{label} · €{k:g}k cash",
             "blocks": [duel(side("You", eur(you["gain"], sign=True), rate(you), BLUE),
                             side(name, eur(them["gain"], sign=True), rate(them), CORAL),
                             f"You are **{eur(abs(lead))}** {'ahead' if lead >= 0 else 'behind'}", tone(lead)),

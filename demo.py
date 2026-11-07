@@ -15,6 +15,7 @@ from datetime import date, timedelta
 import pandas as pd
 
 import config
+import etfs
 
 START = date(2025, 3, 1)
 SEED = 7
@@ -102,35 +103,113 @@ def _net_by_day(today):
     return net
 
 
-def _assets():
-    """asset: (category, value on the first snapshot, expected weekly return, market beta, own weekly noise,
-    share of the new savings it receives; the shares add up to 1).
+# The demo should look like a typical small investor, not like the owner's own portfolio: mostly cash, one
+# broad world ETF, an S&P 500 one and a bit of emerging markets, a few well-known stocks and some Bitcoin.
+_SP500_TICKERS = {"CSPX", "SXR8", "VUAA", "VUSA", "IUSA", "SPY5", "SPXS"}
+_POPULAR_STOCKS = ["Apple", "Nvidia", "Microsoft", "Alphabet", "Amazon", "ASML", "Inditex", "Mastercard"]
 
-    The funds and stocks are the ones named in config_local.py (FUND_SOURCES, DIRECT_STOCKS) with made-up amounts, so
-    Exposure and Backtest, which download data for those names, work with demo data too. Only the funds that also
-    have a PRICE_SOURCES entry are held, so Backtest doesn't leave any of them out. Without them, generic names
-    are used (and those two pages stay empty)."""
-    funds = list(config.FUND_SOURCES) or ["World ETF", "Emerging Markets ETF", "Small Cap Value ETF"]
+
+def _pick_funds():
+    """The world fund (the comparison fund if it is one), an S&P 500 fund and one plain emerging-markets fund,
+    picked among the funds named in config_local.py so Exposure and Backtest still have data for them."""
+    all_funds = list(config.FUND_SOURCES)
+    if not all_funds:
+        return "World ETF", "S&P 500 ETF", "Emerging Markets ETF"
+    sp500 = next((f for f in all_funds if config.FUND_SOURCES[f].get("ticker") in _SP500_TICKERS
+                  or "S&P" in f.upper()), None)
+    funds = all_funds
     if config.PRICE_SOURCES:  # funds without a price source are past holdings, and Backtest would drop them
         funds = [f for f in funds if f in config.PRICE_SOURCES] or funds
-    stocks = list(config.DIRECT_STOCKS) or ["Apple", "Nvidia", "Inditex"]
+    spec = lambda f: config.FUND_SOURCES.get(f, {})
+    developed = [f for f in funds if not spec(f).get("emerging")]
+    emerging = [f for f in funds if spec(f).get("emerging")]
     bench = config.LOOKTHROUGH_BENCHMARK
-    if bench in funds:  # the comparison fund is the biggest holding
-        funds.insert(0, funds.pop(funds.index(bench)))
-    fund_values = [14500 * 0.72 ** i for i in range(len(funds))]
-    out = {
-        "Checking account": ("Cash", 2400, 0, 0, 0, 0.10),
-        "Savings account": ("Cash", 5200, 0.0005, 0, 0, 0.10),
-        "Gold": ("Commodities", 1300, 0.0014, 0.0, 0.016, 0.04),
-        "Bitcoin": ("Crypto", 900, 0.0030, 1.5, 0.050, 0.02),
-    }
-    for name, value in zip(funds, fund_values):
-        emerging = bool(config.FUND_SOURCES.get(name, {}).get("emerging"))
-        out[name] = ("ETFs", round(value), 0.0012 if emerging else 0.0017, 1.1 if emerging else 1.0, 0.004,
-                     0.60 * value / sum(fund_values))
-    for i, name in enumerate(stocks):
-        out[name] = ("Stocks", round(1600 * 0.85 ** i), 0.0020, 1.3, 0.020, 0.14 / len(stocks))
+    core = bench if bench in funds else next((f for f in developed if spec(f).get("bucket") == "Core index"),
+                                             (developed or funds)[0])
+    # a plain index fund (marked "proxy") rather than a factor one, like most people would buy
+    em = next((f for f in emerging if spec(f).get("proxy")), emerging[0] if emerging else None)
+    return core, sp500, em
+
+
+def extra_price_sources():
+    """PRICE_SOURCES entries for demo funds that have none in config_local.py (the S&P 500 fund, usually), taken
+    from the etfs.py catalogue, so Backtest doesn't leave them out."""
+    out = {}
+    for name in _pick_funds():
+        ticker = config.FUND_SOURCES.get(name, {}).get("ticker") if name else None
+        if name and name not in config.PRICE_SOURCES and ticker in etfs.ETFS:
+            out[name] = etfs.price_source(ticker)
     return out
+
+
+def _pick_stocks(n=4):
+    stocks = list(config.DIRECT_STOCKS)
+    if not stocks:
+        return ["Apple", "Nvidia", "Inditex", "Microsoft"][:n]
+    popular = [s for s in _POPULAR_STOCKS if s in stocks]
+    return (popular + [s for s in stocks if s not in popular])[:n]
+
+
+def _assets():
+    """asset: (category, value on the first snapshot (0 = not bought yet), expected weekly return, market beta,
+    own weekly noise).
+
+    The funds and stocks are a few of the ones named in config_local.py (FUND_SOURCES, DIRECT_STOCKS) with made-up
+    amounts, so Exposure and Backtest, which download data for those names, work with demo data too. Without
+    them, generic names are used (and those two pages stay empty)."""
+    core, sp500, em = _pick_funds()
+    first, second, third, later = _pick_stocks()
+    out = {
+        "Checking account": ("Cash", 3100, 0, 0, 0),
+        "Savings account": ("Cash", 9200, 0.0004, 0, 0),
+        core: ("ETFs", 6800, 0.0017, 1.0, 0.004),
+        "Bitcoin": ("Crypto", 1600, 0.0040, 1.5, 0.050),
+        first: ("Stocks", 0, 0.0022, 1.5, 0.025),  # bought in May
+        second: ("Stocks", 900, 0.0020, 1.2, 0.018),
+        third: ("Stocks", 700, 0.0012, 1.2, 0.020),  # swapped for `later` in October
+        later: ("Stocks", 0, 0.0018, 1.0, 0.015),
+    }
+    if sp500:
+        out[sp500] = ("ETFs", 1600, 0.0019, 1.05, 0.005)
+    if em:
+        out[em] = ("ETFs", 1100, 0.0012, 1.1, 0.004)
+    return out
+
+
+def _script():
+    """What the demo investor does, as {date: [(action, ...)]}; each runs on the first snapshot on or after it.
+
+    Like most people: a monthly automatic buy of the funds (see _portfolios), and now and then a decision -- buying
+    a dip, picking up a stock everybody talks about, swapping one they gave up on, a new-year lump sum, taking some
+    profit after a big run. Money comes from, and goes back to, the savings account."""
+    core, sp500, em = _pick_funds()
+    first, second, third, later = _pick_stocks()
+    sp500 = sp500 or core
+    return {
+        date(2025, 4, 14): [("buy", core, 1500)],                     # buying the April dip
+        date(2025, 5, 12): [("buy", first, 1000)],                    # the stock everybody talks about
+        date(2025, 7, 21): [("buy", "Bitcoin", 400)],                 # summer crypto hype
+        date(2025, 10, 6): [("swap", third, later, 1.0)],             # gives up on one stock for another
+        date(2026, 1, 12): [("buy", sp500, 3000)],                    # new-year lump sum
+        date(2026, 3, 9): [("sell", "Bitcoin", 0.3)],                # takes some profit after the run
+        date(2026, 6, 15): [("sell", first, 0.5), ("buy", core, 0)],  # halves the stock, the money into the world fund
+    }
+
+
+# Market moves that every risky asset feels (times its beta), and ones only Bitcoin feels, by week.
+_MARKET_SHOCKS = {date(2025, 4, 7): -0.085, date(2025, 4, 14): -0.03, date(2025, 4, 21): 0.045,
+                  date(2025, 4, 28): 0.035, date(2025, 11, 17): -0.035, date(2026, 8, 3): -0.05,
+                  date(2026, 8, 17): 0.03}
+_CRYPTO_SHOCKS = {date(2025, 7, 14): 0.18, date(2025, 11, 17): -0.22, date(2025, 11, 24): -0.12,
+                  date(2026, 2, 16): 0.25, date(2026, 2, 23): 0.12,
+                  date(2026, 9, 21): 0.2, date(2026, 10, 5): 0.12}
+
+MONTHLY_BUY = 450  # the automatic buy, a few days after payday
+CHECKING_BUFFER = 3000  # above this, what's left over is moved to the savings account at the start of the month
+
+
+def _shock(table, day, nxt):
+    return sum(v for d, v in table.items() if day < d <= nxt)
 
 
 @functools.lru_cache(maxsize=2)
@@ -138,20 +217,50 @@ def _portfolios(today):
     rng = random.Random(SEED + 1)
     net = _net_by_day(today)
     assets = _assets()
-    day = START + timedelta(days=6)
+    core, sp500, em = _pick_funds()
+    plan = {f: w for f, w in ((core, 0.6), (sp500, 0.25), (em, 0.15)) if f}
+    plan = {f: w / sum(plan.values()) for f, w in plan.items()}
+    script = sorted(_script().items())
     values = {name: float(spec[1]) for name, spec in assets.items()}
+
+    def move(src, dst, amount):
+        amount = min(amount, values[src])
+        values[src] -= amount
+        values[dst] += amount
+        return amount
+
+    day = START + timedelta(days=6)
     snaps = {}
     while True:
         snap = snaps[pd.Timestamp(day)] = {}
         for name, spec in assets.items():
-            snap.setdefault(spec[0], {})[name] = round(values[name], 2)
+            if values[name] >= 0.5 or spec[0] == "Cash":  # what was sold, or not bought yet, isn't listed
+                snap.setdefault(spec[0], {})[name] = round(values[name], 2)
         if day >= today:
             return snaps
         nxt = min(day + timedelta(days=7), today)
-        saved = sum(v for d, v in net.items() if day < date.fromisoformat(d) <= nxt)
-        market = rng.gauss(0, 0.017)
-        for name, (_c, _v, drift, beta, noise, share) in assets.items():
-            values[name] = max(0.0, values[name] * (1 + drift + beta * market + rng.gauss(0, noise)) + saved * share)
+
+        market = rng.gauss(0, 0.017) + _shock(_MARKET_SHOCKS, day, nxt)
+        crypto = _shock(_CRYPTO_SHOCKS, day, nxt)
+        for name, (_c, _v, drift, beta, noise) in assets.items():
+            values[name] *= 1 + drift + beta * market + rng.gauss(0, noise) + (crypto if name == "Bitcoin" else 0)
+            values[name] = max(0.0, values[name])
+        values["Checking account"] += sum(v for d, v in net.items() if day < date.fromisoformat(d) <= nxt)
+
+        if nxt.month != day.month:  # a new month: the automatic buy, and the leftover to savings
+            for fund, w in plan.items():
+                move("Checking account", fund, MONTHLY_BUY * w)
+            if values["Checking account"] > CHECKING_BUFFER:
+                move("Checking account", "Savings account", values["Checking account"] - CHECKING_BUFFER)
+        proceeds = 0.0
+        while script and script[0][0] <= nxt:
+            for action, *args in script.pop(0)[1]:
+                if action == "buy":  # an amount of 0 spends what the sales just before it brought in
+                    move("Savings account", args[0], args[1] or proceeds)
+                elif action == "sell":
+                    proceeds = move(args[0], "Savings account", values[args[0]] * args[1])
+                elif action == "swap":
+                    move(args[0], args[1], values[args[0]] * args[2])
         day = nxt
 
 

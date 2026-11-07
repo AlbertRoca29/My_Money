@@ -24,16 +24,16 @@ DATE_FORMAT = "%Y%m%d"
 # Categories: name -> colour. The order is the order used in charts and in the snapshot editor.
 # ---------------------------------------------------------------------------
 ASSET_TYPES = {
-    "Cash":            "#A9B4C2",
-    "ETFs":            "#0666EB",
-    "Stocks":          "#8E5CF7",
-    "Private Markets": "#00A2C7",
-    "Commodities":     "#F2B705",
-    "Derivatives":     "#F0506E",
-    "Crypto":          "#FF7A1A",
-    "Other":           "#6B7785",
+    "Cash":            "#A4B1C0",
+    "ETFs":            "#4B80DF",
+    "Stocks":          "#DC8C50",
+    "Private Markets": "#2FA383",
+    "Commodities":     "#D1A93C",
+    "Derivatives":     "#C2639A",
+    "Crypto":          "#7A6AD0",
+    "Other":           "#7D8894",
 }
-OTHERS_COLOR = "#B79CFA"  # the grouped "Others" band in the stacked charts
+OTHERS_COLOR = "#B3A6E6"  # the grouped "Others" band in the stacked charts
 
 # ---------------------------------------------------------------------------
 # Overview page defaults (the start date can also be changed from the app's settings, see settings.py)
