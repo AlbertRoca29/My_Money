@@ -1,10 +1,10 @@
 # Put My Money online (Google Cloud)
 
-What you end up with: one private link (Gastos first, Portfolio behind the switch) that you can save to your
-phone's home screen. Only the Google accounts you list can sign in.
+What you end up with: one private link (Gastos first, Portfolio behind the switch) for your computer's browser
+(desktop only: phones and tablets get a notice page, before the sign-in). Only the Google accounts you list can sign in.
 
 ```
- phone / laptop ──(Sign in with Google)──► Cloud Run: app.py ──► Google Sheet  "Movements" + "Snapshots" tabs
+    computer    ──(Sign in with Google)──► Cloud Run: app.py ──► Google Sheet  "Movements" + "Snapshots" tabs
                                                  ▲              └► bucket        receipts, downloads
                          every night, 05:00 ─────┘ Cloud Scheduler (pre-downloads ETF data so pages open fast)
 ```
@@ -80,7 +80,7 @@ It stops if the tabs already have rows, so it can't duplicate anything. Your loc
 ./deploy.sh            # about 3 minutes; prints the link
 ./deploy.sh schedule   # the nightly refresh (once)
 ```
-Open the link on your phone, sign in, then **Add to Home Screen**.
+Open the link on your computer and sign in.
 
 ---
 

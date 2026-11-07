@@ -3,7 +3,9 @@
 A personal-finance side project, still a work in progress. One website with two halves, and a switcher at the top
 to go from one to the other:
 
-- **[Gastos](gastos/)** at `/` (the default, orange): a phone-first app to log expenses and income.
+- **[Gastos](gastos/)** at `/` (the default, orange): an app to log expenses and income.
+
+**Desktop only:** phones and tablets (and windows narrower than 900px) get a "Desktop only" notice instead of the app, before the sign-in page; nothing installs as a phone app, and the local server only listens on this computer (`127.0.0.1`).
 - **Portfolio tracker** at `/portfolio` (blue): net worth from periodic snapshots, money-weighted returns
   (your savings come straight from Gastos), look-through exposure vs a benchmark ETF, and a backtest of
   today's fund mix.

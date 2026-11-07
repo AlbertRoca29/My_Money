@@ -95,6 +95,11 @@ schedule() {
   g scheduler jobs "$verb" http my-money-refresh --location "$REGION" --schedule "0 5 * * *" \
     --time-zone Europe/Madrid --uri "$URL/tasks/refresh" --http-method POST --attempt-deadline 900s \
     --oidc-service-account-email "$CRON_SA" --oidc-token-audience "$URL"
+  # Keeps the app awake (free: 3 scheduler jobs and 2M requests a month cost nothing), so opening it is instant
+  local warm=create
+  g scheduler jobs describe my-money-warm --location "$REGION" >/dev/null 2>&1 && warm=update
+  g scheduler jobs "$warm" http my-money-warm --location "$REGION" --schedule "*/10 * * * *" \
+    --uri "$URL/healthz" --http-method GET --attempt-deadline 60s
   echo "Nightly refresh set. Run it now with:  gcloud --project $PROJECT scheduler jobs run my-money-refresh --location $REGION"
 }
 

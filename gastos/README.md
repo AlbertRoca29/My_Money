@@ -1,12 +1,12 @@
 # Gastos
 
-Expenses and income, as a phone-first web app. Replaces logging them straight into the Gastos Google Sheet.
+Expenses and income, as a desktop web app (phones and tablets get a "Desktop only" notice). Replaces logging them straight into the Gastos Google Sheet.
 It is the default page of My Money: the same server shows Gastos at `/` and the portfolio at `/portfolio`,
 with a switcher at the top of both.
 
 ## Run it
 
-Online: see [../DEPLOY.md](../DEPLOY.md), then open the link on your phone and **Add to Home Screen**.
+Online: see [../DEPLOY.md](../DEPLOY.md), then open the link on your computer.
 On your computer: `.venv/bin/python app.py` from My_Money/, then http://127.0.0.1:8050.
 
 Every movement is one row in the **Movements** tab of your Google Sheet (columns in `db.py`). You can edit or
@@ -21,7 +21,7 @@ sort rows there; the app sees it within half a minute.
 | `web/store.js` | The only file that talks to the server (and sends you to sign in when needed) |
 | `web/app.js` | The screens: Home, Movements, Stats, the add/edit sheet and Tidy names (settings are the shared ⚙ sheet, `../static/settings.js`) |
 | `web/style.css` | Same look as My Money, with dark mode |
-| `web/sw.js`, `manifest.webmanifest` | Installable app, works offline with the last data seen |
+| `web/sw.js` | Removes the offline worker older versions installed (Gastos is desktop only now) |
 
 ## Rules carried over from the sheet
 

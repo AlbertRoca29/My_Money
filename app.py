@@ -1,8 +1,7 @@
 """My Money — Gastos (expenses and income) and the portfolio tracker, on one website.
 
 Run it:
-    .venv/bin/python app.py          then open http://127.0.0.1:8050
-    MY_MONEY_HOST=0.0.0.0 .venv/bin/python app.py     to open it from your phone on the same Wi-Fi
+    .venv/bin/python app.py          then open http://127.0.0.1:8050   (desktop only: phones get a notice page)
 
     /               Gastos, the default (gastos/: its own blueprint, plain HTML/JS in gastos/web/)
     /portfolio      the portfolio tracker (everything below)
@@ -17,7 +16,7 @@ How it fits together
 
 This file only maps URLs to those functions. Every route returns JSON except "/portfolio".
 """
-import os
+import re
 from pathlib import Path
 
 import plotly
@@ -31,10 +30,22 @@ from gastos.routes import bp as gastos
 from web import data
 from web.pages import PAGES
 
+PHONE_UA = re.compile(r"Android|iPhone|iPad|iPod|Mobile|Windows Phone|BlackBerry|Opera Mini|Silk|Kindle|webOS|SamsungBrowser", re.I)
+OPEN_TO_ALL = ("/healthz", "/tasks/", "/static/gate.css")  # Cloud Scheduler calls these, not a person
+
+
+def desktop_only():
+    """My Money is a desktop app: a phone or tablet gets a notice page instead of the app (the page itself
+    also covers narrow windows, see static/gate.css)."""
+    if PHONE_UA.search(request.headers.get("User-Agent", "")) and not request.path.startswith(OPEN_TO_ALL):
+        return render_template("desktop_only.html"), 403
+
+
 app = Flask(__name__)
 app.json.sort_keys = False  # keep categories and assets in the order they were written
 if auth.ON_CLOUD_RUN:  # behind Google's proxy: trust its https:// and host, for the sign-in redirect URL
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+app.before_request(desktop_only)  # first, so a phone never even reaches the sign-in page
 auth.init(app)                  # Sign in with Google (auth.py); off on your own computer
 app.register_blueprint(gastos)  # "/" and its /api/entries, /api/receipts… routes
 
@@ -46,6 +57,12 @@ def index():
     return render_template("index.html", pages={k: m.TITLE for k, m in PAGES.items()}, hidden=hidden)
 
 
+@app.get("/healthz")
+def healthz():
+    """Does nothing: the keep-warm Cloud Scheduler job (deploy.sh schedule) calls it so Cloud Run stays awake."""
+    return "ok"
+
+
 @app.get("/plotly.min.js")
 def plotly_js():
     """Serve the Plotly.js that ships with the installed plotly package, so versions always match."""
@@ -55,7 +72,7 @@ def plotly_js():
 @app.get("/api/page/<name>")
 def page(name):
     """Build a page. Its params are the saved settings (settings.py), overridden by the query string, which
-    carries the values of the page's controls (and phone=1 on a small screen)."""
+    carries the values of the page's controls."""
     if name not in PAGES:
         abort(404)
     try:
@@ -125,4 +142,4 @@ def refresh():
 
 if __name__ == "__main__":
     # debug=True: the server restarts by itself whenever you save a .py file
-    app.run(host=os.environ.get("MY_MONEY_HOST", config.HOST), port=config.PORT, debug=True)
+    app.run(host=config.HOST, port=config.PORT, debug=True)  # 127.0.0.1: this computer only
