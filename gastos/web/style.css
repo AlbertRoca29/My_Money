@@ -517,3 +517,17 @@ html[data-privacy=on] .chart text, html[data-privacy=on] .tip, html[data-privacy
   .card h2 { flex-wrap: wrap; }
   .card h2 .h-sub { order: 3; flex-basis: 100%; margin: 4px 0 0; }
 }
+
+/* ---------- Movements, calmer: smaller stickers, tighter rows ---------- */
+#view[data-view=list] .row { padding: 6px 4px; gap: 10px; }
+#view[data-view=list] .avatar { width: 34px; height: 34px; }
+#view[data-view=list] .row-name { font-size: 15px; }
+#view[data-view=list] .row-sub { font-size: 12px; }
+#view[data-view=list] .row-amt { font-weight: 500; }
+#view[data-view=list] .row-amt.pos { font-weight: 600; }
+@media (max-width: 899px) {
+  /* On a phone the filters scroll away with the list instead of covering a third of the screen */
+  #view[data-view=list] .filters { position: static; gap: 6px; padding-bottom: 0; }
+  #view[data-view=list] .chip { padding: 6px 12px; }
+  #view[data-view=list] .sortseg button { padding: 6px 10px; }
+}

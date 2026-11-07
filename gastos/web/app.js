@@ -106,7 +106,8 @@ function toast(msg, isError = false) {
 }
 
 // ---------------------------------------------------------------- pieces
-function row(e, withDate = false) {
+// withCat: the category's name under the movement's (Movements leaves it out: the sticker already says it).
+function row(e, withDate = false, withCat = true) {
   const loss = e.kind === "income" && e.amount < 0;   // a negative income is a loss
   const sign = e.kind === "income" ? (loss ? "−" : "+") : "−";
   const cls = loss ? "neg" : e.kind === "income" ? "pos" : counts(e) ? "" : "other";
@@ -114,7 +115,7 @@ function row(e, withDate = false) {
     <span class="avatar" style="--c:${colorOf(e.category)}">${glyph(e.category)}</span>
     <span class="row-main">
       <span class="row-name">${esc(e.name)}${e.receipt ? ' <span class="clip" title="Has receipt">📎</span>' : ""}</span>
-      <span class="row-sub">${esc(label(e.category))}${withDate ? ` · ${esc(dayName(e.date))}` : ""}</span>
+      <span class="row-sub">${[withCat && label(e.category), withDate && dayName(e.date)].filter(Boolean).map(esc).join(" · ")}</span>
     </span>
     <span class="row-amt ${cls}">${sign}${eur(Math.abs(e.amount))}</span>
   </button>`;
@@ -423,7 +424,6 @@ const views = {
     if (cat) items = items.filter((e) => e.category === cat);
     if (sort === "amount") items = [...items].sort((a, b) => b.amount - a.amount);
     const t = totals(items);
-    const days = Map.groupBy ? Map.groupBy(items, (e) => e.date) : items.reduce((m, e) => m.set(e.date, [...(m.get(e.date) || []), e]), new Map());
     const chip = (k, txt) => `<button class="chip ${kind === k ? "on" : ""}" data-kind="${k}">${txt}</button>`;
     return `
       <div class="filters">
@@ -443,14 +443,8 @@ const views = {
         : kind === "income" ? `total <b class="${t.income < 0 ? "neg" : "pos"}">${eur(t.income)}</b>`
         : `spent <b>${eur(t.spent)}</b> · income <b class="pos">${eur(t.income)}</b>`}</p>
       ${!items.length ? `<p class="empty">Nothing matches.</p>`
-        : sort === "amount" ? `<div class="rows flat">${items.map((e) => row(e, true)).join("")}</div>`
-        : [...days].map(([day, es]) => {
-        const net = totals(es);
-        const diff = net.income - net.spent;   // income and expenses on one day add up, with their sign
-        const shownNet = net.spent || net.income ? `${diff < 0 ? "−" : "+"}${eur(Math.abs(diff))}` : "";
-        return `<section class="day" id="d-${day}"><h3>${esc(dayName(day))}<span class="${diff > 0 ? "pos" : ""}">${shownNet}</span></h3>
-          <div class="rows">${es.map((e) => row(e)).join("")}</div></section>`;
-      }).join("")}
+        // One flat list, newest first (or biggest): the sticker says the category, the row says the day.
+        : `<div class="rows flat">${items.map((e) => row(e, true, false)).join("")}</div>`}
       </div>`;
   },
 
